@@ -1,4 +1,5 @@
 # generate_challenge_docs_unified.py
+# 챌린지 문서 생성기
 import random
 
 def generate_challenge_docs(file_path="challenge_docs.txt", mode="random", num_paragraphs=100):# fixed, random으로 변경 가능
@@ -33,6 +34,7 @@ def generate_challenge_docs(file_path="challenge_docs.txt", mode="random", num_p
         "물 절약을 위해 양치컵 사용을 생활화하자.",
         "일회용품 대신 다회용품을 사용하자."
     ]
+ 
 
     try:
         with open(file_path, "w", encoding="utf-8") as f:
