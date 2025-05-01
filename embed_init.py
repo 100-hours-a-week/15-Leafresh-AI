@@ -63,6 +63,7 @@ retriever = vectorstore.as_retriever()
 # 예: export RESET_COLLECTION=true
 # 기존 컬렉션을 완전히 삭제 후 새로 생성
 RESET_COLLECTION = os.getenv("RESET_COLLECTION", "false").lower() == "true"
+# -> “환경변수 RESET_COLLECTION이 존재하지 않으면 기본값은 "false"로 간주하겠다.”
 
 if RESET_COLLECTION:
     try:
