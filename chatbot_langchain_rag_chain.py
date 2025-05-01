@@ -59,6 +59,7 @@ custom_prompt = PromptTemplate(
 """
 )
 
+# RetrievalQA 체인 생성(RAG)
 qa_chain = RetrievalQA.from_chain_type(
     llm=llm,
     retriever=retriever,
