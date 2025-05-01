@@ -53,31 +53,6 @@ def select_category(req: CategoryRequest):
     """
     return get_llm_response(prompt)
 
-@app.post("/chatbot/freetext")
-def free_text(req: FreeTextRequest):
-    if not req.user_message.strip():
-        raise HTTPException(status_code=400, detail="user_message는 필수입니다.")
-
-    if not isinstance(req.user_message, str) or len(req.user_message.strip()) < 5:
-        raise HTTPException(status_code=422, detail="user_message는 문자열이어야 하며, 최소한의 의미를 가져야 합니다.")
-
-    prompt = f"""
-    사용자 메시지: "{req.user_message}"
-    지역: {req.location}, 직업: {req.work_type}
-    환경에 도움이 되는 챌린지를 아래 JSON 형식으로만 3가지 추천해주세요:
-    {{
-        "status": 200,
-        "message": "성공!",
-        "data": {{
-            "recommand": "설명 텍스트",
-            "challenges": [
-                {{"title": "챌린지 이름", "description": "설명"}}
-            ]
-        }}
-    }}
-    """
-    return get_llm_response(prompt)
-
 @app.post("/ai/chatbot/recommendation/free-text")
 def freetext_rag(req: FreeTextRequest):
 
@@ -101,10 +76,21 @@ def freetext_rag(req: FreeTextRequest):
 
     # LangChain 기반 RAG 체인 호출
     try:
-        result = qa_chain.run(req.user_message)
+        # 🔍 RAG 디버깅: 실제 검색된 문서 확인
+        try:
+            docs = qa_chain.retriever.invoke(req.user_message)
+            print(f"🔍 검색된 문서 수: {len(docs)}")
+            if not docs:
+                print("⚠️ 검색된 문서가 없습니다.")
+            for i, doc in enumerate(docs):
+                print(f"📄 [문서 {i+1}]")
+                print(doc.page_content)
+        except Exception as e:
+            print(f"❌ 문서 검색 실패: {e}")
+        result = qa_chain.invoke(req.user_message)
         print("🔍 LLM 응답 원문:\n", result)
         # RAG 응답 파싱
-        parsed = json.loads(result)
+        parsed = json.loads(result["result"])
         return parsed
 
     except json.JSONDecodeError:
