@@ -22,4 +22,4 @@ public_url = ngrok.connect(8000)
 print(f"🚀 서버 실행 주소: {public_url}")
 
 # ✅ uvicorn으로 FastAPI 앱 실행
-uvicorn.run("chatbot_app_vertex:app", host="0.0.0.0", port=8000)
+uvicorn.run("chatbot_app_router:app", host="0.0.0.0", port=8000)
