@@ -12,7 +12,7 @@ load_dotenv()
 
 QDRANT_URL = os.getenv("QDRANT_URL")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
-COLLECTION_NAME = "challenge-collection"
+COLLECTION_NAME = "my-new-collection"
 
 # LLM 초기화 (VertexAI)
 llm = VertexAI(model_name="gemini-1.5-flash", temperature=0.4)
@@ -26,7 +26,7 @@ vectorstore = Qdrant(
     embeddings=embedding_model
 )
 
-retriever = vectorstore.as_retriever()
+retriever = vectorstore.as_retriever(search_kwargs={"k": 5}) # 사용자 질문으로 부터 가장 유사한 5개 문서 검색
 
 # PromptTemplate
 custom_prompt = PromptTemplate(
