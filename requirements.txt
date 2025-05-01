@@ -1,15 +1,28 @@
 # pip install -r requirements.txt
-google-cloud-aiplatform
+# --- FastAPI 서버 ---
 fastapi
 uvicorn
 nest_asyncio
 pyngrok
+
+# --- Google & Vertex AI ---
 google-auth
-qdrant-client
-langchain
-sentence-transformers
-scikit-learn
-langchain-community
+google-cloud-aiplatform
 google-generativeai
+
+# --- LangChain & RAG ---
+langchain>=0.1.16
+langchain-community
 langchain-qdrant
 langchain-huggingface
+
+# --- 벡터DB ---
+qdrant-client
+
+# --- 임베딩 및 모델 ---
+sentence-transformers
+scikit-learn
+
+# --- 유틸 ---
+python-dotenv
+requests
