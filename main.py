@@ -18,8 +18,8 @@ NGROK_AUTH_TOKEN = os.getenv("NGROK_AUTH_TOKEN")
 ngrok.set_auth_token(NGROK_AUTH_TOKEN)
 
 # ✅ 포트 연결 및 공개 주소 획득
-public_url = ngrok.connect(8000)
+public_url = ngrok.connect(9999)
 print(f"🚀 서버 실행 주소: {public_url}")
 
 # ✅ uvicorn으로 FastAPI 앱 실행
-uvicorn.run("chatbot_app_router:app", host="0.0.0.0", port=8000)
+uvicorn.run("chatbot_app_router:app", host="0.0.0.0", port=9999)
