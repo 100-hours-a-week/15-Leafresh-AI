@@ -4,7 +4,7 @@ from langchain.prompts import PromptTemplate
 from langchain_community.vectorstores import Qdrant
 from langchain_community.embeddings import SentenceTransformerEmbeddings
 from qdrant_client import QdrantClient
-from langchain_gemini_llm import GeminiLLM
+from langchain_google_vertexai import VertexAI
 from dotenv import load_dotenv
 import os
 
@@ -14,12 +14,8 @@ QDRANT_URL = os.getenv("QDRANT_URL")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 COLLECTION_NAME = "challenge-collection"
 
-llm = GeminiLLM(
-    credentials_path="./kakao-project-457106-b926aa186fc4.json",
-    project="kakao-project-457106",
-    location="us-central1",
-    model_name="gemini-1.5-pro"
-)
+# LLM 초기화 (VertexAI)
+llm = VertexAI(model_name="gemini-1.5-flash", temperature=0.4)
 
 qdrant_client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
 embedding_model = SentenceTransformerEmbeddings(model_name="all-MiniLM-L6-v2")
@@ -27,18 +23,45 @@ embedding_model = SentenceTransformerEmbeddings(model_name="all-MiniLM-L6-v2")
 vectorstore = Qdrant(
     client=qdrant_client,
     collection_name=COLLECTION_NAME,
-    embedding_function=embedding_model
+    embeddings=embedding_model
 )
 
 retriever = vectorstore.as_retriever()
 
+# PromptTemplate
+custom_prompt = PromptTemplate(
+    input_variables=["context", "question"],
+    template="""
+다음 문서를 참고하여 사용자 요청에 맞는 친환경 챌린지를 JSON 형식으로 3개 추천해주세요.
+
+문서:
+{context}
+
+요청:
+{question}
+
+아래 포맷을 반드시 지켜 JSON만 출력해주세요.  
+추가 설명 없이 순수 JSON만 반환해야 합니다.
+절대로 ```json 또는 ``` 와 같은 마크다운 코드블록을 사용하지 마세요.
+
+{{
+  "status": 200,
+  "message": "성공!",
+  "data": {{
+    "recommand": "설명 텍스트",
+    "challenges": [
+      {{"title": "챌린지 이름", "description": "설명"}},
+      {{"title": "챌린지 이름", "description": "설명"}},
+      {{"title": "챌린지 이름", "description": "설명"}}
+    ]
+  }}
+}}
+"""
+)
+
 qa_chain = RetrievalQA.from_chain_type(
     llm=llm,
     retriever=retriever,
-    chain_type="stuff"
+    chain_type="stuff",
+    chain_type_kwargs={"prompt": custom_prompt}
 )
-
-if __name__ == "__main__":
-    question = "플라스틱 줄이는 방법 뭐 있어?"
-    response = qa_chain.run(question)
-    print(f"🤖 응답: {response}")

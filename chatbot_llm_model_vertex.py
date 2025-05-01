@@ -1,4 +1,5 @@
 # chatbot_llm_model_vertex.py
+# /ai/chatbot/recommendation/base-info 에서 받아와 답변 호출
 import vertexai
 from vertexai.generative_models import GenerativeModel
 from google.oauth2 import service_account
@@ -19,7 +20,7 @@ MODEL_NAME = os.getenv("VERTEX_MODEL_NAME", "publishers/google/models/gemini-1.5
 credentials = service_account.Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE)
 vertexai.init(project=PROJECT_ID, location=LOCATION, credentials=credentials)
 
-#  모델 객체 생성
+# GenerativeModel 초기화
 model = GenerativeModel("gemini-1.5-flash")
 
 #  LLM 응답 함수
@@ -29,7 +30,6 @@ def get_llm_response(prompt: str):
 
         # 안전하게 텍스트 추출
         raw_text = getattr(response, "text", "")
-        print("📦 Gemini 응답 전체:", raw_text)
 
         # JSON 형식 추출
         match = re.search(r'{.*}', raw_text, re.DOTALL)
