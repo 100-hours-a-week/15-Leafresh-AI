@@ -45,7 +45,7 @@ except Exception as e:
     print(f"❌ 컬렉션 생성 중 오류 발생: {str(e)}")
 
 # 임베딩 모델
-embedding_fn = SentenceTransformerEmbeddings(model_name="all-MiniLM-L6-v2")
+embedding_fn = SentenceTransformerEmbeddings(model_name="BAAI/bge-small-en-v1.5")
 
 # Qdrant vectorstore 객체
 vectorstore = Qdrant(
