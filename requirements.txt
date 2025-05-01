@@ -1,0 +1,15 @@
+# pip install -r requirements.txt
+google-cloud-aiplatform
+fastapi
+uvicorn
+nest_asyncio
+pyngrok
+google-auth
+qdrant-client
+langchain
+sentence-transformers
+scikit-learn
+langchain-community
+google-generativeai
+langchain-qdrant
+langchain-huggingface
