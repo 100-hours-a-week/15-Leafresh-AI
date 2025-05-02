@@ -3,7 +3,6 @@
 fastapi
 uvicorn
 nest_asyncio
-pyngrok
 
 # --- Google & Vertex AI ---
 google-auth
@@ -25,4 +24,4 @@ scikit-learn
 
 # --- 유틸 ---
 python-dotenv
-requests
+requestsx
