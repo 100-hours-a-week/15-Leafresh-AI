@@ -14,7 +14,6 @@ load_dotenv()
 SERVICE_ACCOUNT_FILE = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT", "kakao-project-457106")
 LOCATION = os.getenv("VERTEX_AI_LOCATION", "us-central1")
-MODEL_NAME = os.getenv("VERTEX_MODEL_NAME", "publishers/google/models/gemini-1.5-flash")
 
 # Vertex AI 초기화
 credentials = service_account.Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE)
