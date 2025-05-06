@@ -1,107 +1,134 @@
-# chatbot_app_router.py
-from fastapi import FastAPI, HTTPException
+# Gemini LLM + LangChain
+from chatbot_llm_model_vertex import base_prompt, get_llm_response
+from chatbot_langchain_rag_chain import qa_chain, retriever
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
-from chatbot_llm_model_vertex import get_llm_response
-from chatbot_langchain_rag_chain import qa_chain
+import requests
 import json
-
-# 키워드 및 비속어 필터링 리스트
-ENV_KEYWORDS = [
-        "환경", "지구", "에코", "제로웨이스트", "탄소", "분리수거", "플라스틱", "텀블러", "기후", "친환경",
-        "일회용", "미세먼지", "재활용", "자원", "대중교통", "도보", "비건", "탄소중립", "그린", "에너지", "쓰레기"
-    ]
-BAD_WORDS = [
-        "시발", "씨발", "좆", "fuck", "shit", "개새끼", "병신", "ㅅㅂ", "ㅄ", "ㅂㅅ",
-        "fuckyou", "asshole", "tlqkf", "좃", "개"
-    ]
+import re
 
 app = FastAPI()
 
-@app.get("/")
-def root():
-    return {"message": "Hello from Gemini!"}
+# 키워드 및 비속어 필터링 리스트
+ENV_KEYWORDS = [
+    "환경", "지구", "에코", "제로웨이스트", "탄소", "분리수거", "플라스틱", "텀블러", "기후", "친환경",
+    "일회용", "미세먼지", "재활용", "자원", "대중교통", "도보", "비건", "탄소중립", "그린", "에너지", "쓰레기"
+]
+BAD_WORDS = [
+    "시발", "씨발", "fuck", "shit", "개새끼", "병신", "ㅅㅂ", "ㅄ", "ㅂㅅ","fuckyou", "asshole", "tlqkf","ㅈ"
+]
 
 class CategoryRequest(BaseModel):
-    userId: int
-    category: str
+    memberId: int
     location: str
-    work_type: str
+    workType: str
+    category: str
 
 class FreeTextRequest(BaseModel):
-    userId: int
+    memberId: int
     location: str
-    work_type: str
-    user_message: str
+    workType: str
+    userMessage: str
 
+# 비-RAG 방식 챌린지 추천
 @app.post("/ai/chatbot/recommendation/base-info")
 def select_category(req: CategoryRequest):
-    # 비-RAG 방식: LLM 기반 기본 챌린지 추천
-    prompt = f"""
-    {req.location} 환경에 있는 {req.work_type} 사용자가 {req.category}를 실천할 때,
-    절대적으로 환경에 도움이 되는 챌린지를 아래 JSON 형식으로 3가지 추천해줘:
-    반드시 순수 JSON만 출력해줘.
-    {{
-        "status": 200,
-        "message": "성공!",
-        "data": {{
-            "recommand": "설명 텍스트",
-            "challenges": [
-                {{"title": "챌린지 이름", "description": "설명"}}
-            ]
-        }}
-    }}
-    """
-    return get_llm_response(prompt)
+    # 필수 필드 검사
+    if not req.location:
+        raise HTTPException(status_code=400, detail="location은 필수입니다.")
+    if not req.workType:
+        raise HTTPException(status_code=400, detail="workType은 필수입니다.")
+    if not req.category:
+        raise HTTPException(status_code=400, detail="category는 필수입니다.")
+    # 필드 값 검사
+    prompt = base_prompt.format(
+        location=req.location,
+        workType=req.workType,
+        category=req.category
+    )
+    try:
+        response = get_llm_response(prompt)
+        return response
+    except HTTPException as http_err:
+        raise http_err  # 내부 HTTPException은 그대로 전달
+    except Exception as e:
+        raise HTTPException(status_code=502, detail="AI 서버로부터 추천 결과를 받아오는 데 실패했습니다.")
 
+# LangChain 기반 RAG 추천
 @app.post("/ai/chatbot/recommendation/free-text")
 def freetext_rag(req: FreeTextRequest):
-
-    # 기본 입력 검증
-    if req.user_message is None or not req.user_message.strip():
-        raise HTTPException(status_code=400, detail="user_message는 필수입니다.")
-
-    if not isinstance(req.user_message, str) or len(req.user_message.strip()) < 5:
-        raise HTTPException(status_code=422, detail="user_message는 문자열이어야 하며, 최소한 5자 이상이어야 합니다.")
-
-    # 비속어 또는 친환경 주제 미포함 필터링
-    message_lower = req.user_message.lower()  # 소문자 변환 후 검사 (영어 욕설 대응)
-
-    if not any(keyword in req.user_message for keyword in ENV_KEYWORDS) or \
-       any(bad in message_lower for bad in BAD_WORDS):
+    # 필수 필드 검사
+    if not req.userMessage:
+        raise HTTPException(status_code=400, detail="userMessage는 필수입니다.")
+    if len(req.userMessage.strip()) < 5:
+        raise HTTPException(status_code=422, detail="userMessage는 문자열이어야 하며, 최소 5자 이상의 문자열이어야 합니다.")
+        
+    message_lower = req.userMessage.lower()
+    if not any(k in req.userMessage for k in ENV_KEYWORDS) or any(b in message_lower for b in BAD_WORDS):
         return {
             "status": 403,
             "message": "저는 친환경 챌린지를 추천해드리는 Leafresh 챗봇이에요! 환경 관련 질문을 해주시면 더 잘 도와드릴 수 있어요.",
             "data": None
         }
-
-    # LangChain 기반 RAG 체인 호출
+    # 필수 필드 검사
     try:
-        # 🔍 RAG 디버깅: 실제 검색된 문서 확인
-        try:
-            docs = qa_chain.retriever.invoke(req.user_message)
-            print(f"🔍 검색된 문서 수: {len(docs)}")
-            if not docs:
-                print("⚠️ 검색된 문서가 없습니다.")
-            for i, doc in enumerate(docs):
-                print(f"📄 [문서 {i+1}]")
-                print(doc.page_content)
-        except Exception as e:
-            print(f"❌ 문서 검색 실패: {e}")
-        result = qa_chain.invoke(req.user_message)
-        print("🔍 LLM 응답 원문:\n", result)
-        # RAG 응답 파싱
-        parsed = json.loads(result["result"])
-        return parsed
+        docs = retriever.invoke(req.userMessage)
+        print(f" 검색된 문서 수: {len(docs)}")
+        for i, doc in enumerate(docs):
+            print(f" [문서 {i+1}] {doc.page_content}")
 
-    except json.JSONDecodeError:
-        return {
-            "status": 500,
-            "message": "❌ RAG 응답에서 JSON 파싱 실패",
-            "data": None
+        context_text = "\n".join([doc.page_content for doc in docs])
+
+        # PromptTemplate의 input_variables에 맞춰 context와 query를 전달
+        variables = {
+            "context": context_text,
+            "query": req.userMessage
         }
+        
+        # LLM 응답 결과
+        rag_result = qa_chain.invoke(variables)
+
+        raw_result = rag_result.get("text", "")
+        match = re.search(r'{.*}', raw_result, re.DOTALL)
+        if match:
+            try:
+                parsed = json.loads(match.group())
+                if isinstance(parsed.get("challenges"), str):
+                    parsed["challenges"] = json.loads(parsed["challenges"])
+                return {
+                    "status": 200,
+                    "message": "성공!",
+                    "data": parsed
+                }
+            except Exception as parse_err:
+                raise HTTPException(status_code=500, detail=f"챌린지 추천 중 내부 오류가 발생했습니다. 잠시 후 다시 시도해주세요. JSON 파싱 오류: {str(parse_err)}")
+    except HTTPException as http_err:
+        raise http_err  # 내부 HTTPException을 먼저 처리
     except Exception as e:
-        return {
-            "status": 500,
-            "message": f"❌ RAG 호출 중 오류 발생: {str(e)}",
-            "data": None
-        }
+        raise HTTPException(status_code=502, detail=f"AI 서버로부터 추천 결과를 받아오는 데 실패했습니다.\n{str(e)}")
+
+
+
+# 백엔드와 테스트용으로 FastAPI와 Spring 간의 통신을 위한 엔드포인트 추가
+# FastAPI → Spring: GET 
+@app.get("/fastapi/call-spring")
+def call_spring_get():
+    res = requests.get("http://localhost:8080/spring/hello")
+    return {"from_spring": res.text}
+
+# FastAPI → Spring: POST
+@app.post("/fastapi/call-spring")
+def call_spring_post():
+    res = requests.post("http://localhost:8080/spring/echo", json={"message": "방가방가!"})
+    return {"from_spring": res.text}
+
+# Spring → FastAPI: GET 수신
+@app.get("/fastapi/hello")
+def receive_get():
+    return "Hello from FastAPI!"
+
+# Spring → FastAPI: POST 수신
+@app.post("/fastapi/echo")
+async def receive_post(request: Request):
+    data = await request.json()
+    return {"fastapi_received": data.get("message", "방가방가!")}
