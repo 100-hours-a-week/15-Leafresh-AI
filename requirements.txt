@@ -1,27 +1,10 @@
-# pip install -r requirements.txt
-# --- FastAPI 서버 ---
+# pip install -r requirements_py312.txt
+numpy==1.26.4
 fastapi
+pydantic
+requests
 uvicorn
-nest_asyncio
-
-# --- Google & Vertex AI ---
-google-auth
-google-cloud-aiplatform
-google-generativeai
-
-# --- LangChain & RAG ---
-langchain>=0.1.16
-langchain-community
+langchain>=0.1.13
+openai
+python-multipart
 langchain-qdrant
-langchain-huggingface
-
-# --- 벡터DB ---
-qdrant-client
-
-# --- 임베딩 및 모델 ---
-sentence-transformers
-scikit-learn
-
-# --- 유틸 ---
-python-dotenv
-requestsx
