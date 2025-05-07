@@ -1,14 +1,15 @@
-# Gemini LLM + LangChain
+# chatbot_router.py
 from chatbot_base_info_model import base_prompt, get_llm_response
 from chatbot_free_text_model import qa_chain, retriever
+from fastapi import APIRouter
 from fastapi.responses import JSONResponse
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import HTTPException
 from pydantic import BaseModel
-import requests
+from typing import Optional
 import json
 import re
 
-app = FastAPI()
+router = APIRouter()
 
 # 키워드 및 비속어 필터링 리스트
 ENV_KEYWORDS = [
@@ -20,46 +21,39 @@ BAD_WORDS = [
 ]
 
 class CategoryRequest(BaseModel):
-    memberId: int
-    location: str
-    workType: str
-    category: str
-
+    memberId: Optional[int] = None
+    location: Optional[str] = None
+    workType: Optional[str] = None
+    category: Optional[str] = None
 class FreeTextRequest(BaseModel):
-    memberId: int
-    location: str
-    workType: str
-    userMessage: str
+    memberId: Optional[int] = None
+    location: Optional[str] = None
+    workType: Optional[str] = None
+    userMessage: Optional[str] = None
 
 # 비-RAG 방식 챌린지 추천
-@app.post("/ai/chatbot/recommendation/base-info")
+@router.post("/ai/chatbot/recommendation/base-info")
 def select_category(req: CategoryRequest):
+    missing_fields = []
+    if req.memberId is None:
+        missing_fields.append("memberId")
     # 필수 필드 검사
     if not req.location:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "status": 400,
-                "message": "location은(는) 필수입니다.",
-                "data": None
-            }
-        )
+        missing_fields.append("location")
     if not req.workType:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "status": 400,
-                "message": "workType은 필수입니다.",
-                "data": None
-            }
-        )
+        missing_fields.append("workType")
     if not req.category:
+        missing_fields.append("category")
+
+    if missing_fields:
         return JSONResponse(
             status_code=400,
             content={
                 "status": 400,
-                "message": "category는 필수입니다.",
-                "data": None
+                "message": "필수 입력값이 누락되었습니다.",
+                "data": {
+                    "invalidFields": missing_fields
+                }
             }
         )
 
@@ -85,16 +79,26 @@ def select_category(req: CategoryRequest):
         )
 
 # LangChain 기반 RAG 추천
-@app.post("/ai/chatbot/recommendation/free-text")
+@router.post("/ai/chatbot/recommendation/free-text")
 def freetext_rag(req: FreeTextRequest):
-    # 필수 필드 검사
+    missing_fields = []
+    if req.memberId is None:
+        missing_fields.append("memberId")
+    if not req.location:
+        missing_fields.append("location")
+    if not req.workType:
+        missing_fields.append("workType")
     if not req.userMessage:
+        missing_fields.append("userMessage")
+    if missing_fields:
         return JSONResponse(
             status_code=400,
             content={
                 "status": 400,
-                "message": "userMessage는 필수입니다.",
-                "data": None
+                "message": "필수 입력값이 누락되었습니다.",
+                "data": {
+                    "invalidFields": missing_fields
+                }
             }
         )
     if len(req.userMessage.strip()) < 5:
