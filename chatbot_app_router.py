@@ -144,8 +144,22 @@ def freetext_rag(req: FreeTextRequest):
                     "data": parsed
                 }
             except Exception as parse_err:
-                raise HTTPException(status_code=500, detail=f"챌린지 추천 중 내부 오류가 발생했습니다. 잠시 후 다시 시도해주세요. JSON 파싱 오류: {str(parse_err)}")
+                return JSONResponse(
+                    status_code=500,
+                    content={
+                        "status": 500,
+                        "message": f"챌린지 추천 중 내부 오류가 발생했습니다. 잠시 후 다시 시도해주세요.{str(parse_err)}",
+                        "data": None
+                    }
+                )
     except HTTPException as http_err:
         raise http_err  # 내부 HTTPException을 먼저 처리
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"AI 서버로부터 추천 결과를 받아오는 데 실패했습니다.\n{str(e)}")
+        return JSONResponse(
+            status_code=502,
+            content={
+                "status": 502,
+                "message": f"AI 서버로부터 추천 결과를 받아오는 데 실패했습니다.\n{str(e)}",
+                "data": None
+                }
+        )
