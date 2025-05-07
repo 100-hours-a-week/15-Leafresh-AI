@@ -152,4 +152,14 @@ def freetext_rag(req: FreeTextRequest):
                         "data": None
                     }
                 )
-    except HTTPException as http
+    except HTTPException as http_err:
+        raise http_err  # 내부 HTTPException을 먼저 처리
+    except Exception as e:
+        return JSONResponse(
+            status_code=502,
+            content={
+                "status": 502,
+                "message": f"AI 서버로부터 추천 결과를 받아오는 데 실패했습니다.\n{str(e)}",
+                "data": None
+                }
+        )
