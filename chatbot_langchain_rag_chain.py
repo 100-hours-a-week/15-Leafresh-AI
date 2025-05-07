@@ -31,8 +31,11 @@ rag_response_schemas = [
     ResponseSchema(name="challenges", description="추천 챌린지 리스트, 각 항목은 title, description 포함")
 ]
 
-rag_parser = StructuredOutputParser.from_response_schemas(rag_response_schemas) # LangChain의 StructuredOutputParser를 사용하여 JSON 포맷을 정의
-escaped_format = rag_parser.get_format_instructions().replace("{", "{{").replace("}", "}}")# JSON 포맷을 이스케이프 처리
+# LangChain의 StructuredOutputParser를 사용하여 JSON 포맷을 정의
+rag_parser = StructuredOutputParser.from_response_schemas(rag_response_schemas)
+
+# JSON 포맷을 이스케이프 처리
+escaped_format = rag_parser.get_format_instructions().replace("{", "{{").replace("}", "}}")
 
 # RAG 방식 챌린지 추천을 위한 PromptTemplate 정의
 custom_prompt = PromptTemplate(
@@ -55,6 +58,7 @@ JSON 포맷:
 
 # LLM 초기화 (VertexAI)
 llm = VertexAI(model_name="gemini-2.0-flash", temperature=0.7)
+
 # LLMChain 체인 생성 (retriever는 app_router에서 별도 사용)
 qa_chain = LLMChain(
     llm=llm,
