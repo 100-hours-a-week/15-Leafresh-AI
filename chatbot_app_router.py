@@ -1,6 +1,7 @@
 # Gemini LLM + LangChain
 from chatbot_llm_model_vertex import base_prompt, get_llm_response
 from chatbot_langchain_rag_chain import qa_chain, retriever
+from fastapi.responses import JSONResponse
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 import requests
@@ -35,11 +36,32 @@ class FreeTextRequest(BaseModel):
 def select_category(req: CategoryRequest):
     # 필수 필드 검사
     if not req.location:
-        raise HTTPException(status_code=400, detail="location은 필수입니다.")
+        return JSONResponse(
+            status_code=400,
+            content={
+                "status": 400,
+                "message": "location은(는) 필수입니다.",
+                "data": None
+            }
+        )
     if not req.workType:
-        raise HTTPException(status_code=400, detail="workType은 필수입니다.")
+        return JSONResponse(
+            status_code=400,
+            content={
+                "status": 400,
+                "message": "workType은 필수입니다.",
+                "data": None
+            }
+        )
     if not req.category:
-        raise HTTPException(status_code=400, detail="category는 필수입니다.")
+        return JSONResponse(
+            status_code=400,
+            content={
+                "status": 400,
+                "message": "category는 필수입니다.",
+                "data": None
+            }
+        )
     # 필드 값 검사
     prompt = base_prompt.format(
         location=req.location,
@@ -52,16 +74,37 @@ def select_category(req: CategoryRequest):
     except HTTPException as http_err:
         raise http_err  # 내부 HTTPException은 그대로 전달
     except Exception as e:
-        raise HTTPException(status_code=502, detail="AI 서버로부터 추천 결과를 받아오는 데 실패했습니다.")
+        return JSONResponse(
+            status_code=502,
+            content={
+                "status": 502,
+                "message": "AI 서버로부터 추천 결과를 받아오는 데 실패했습니다.",
+                "data": None
+            }
+        )
 
 # LangChain 기반 RAG 추천
 @app.post("/ai/chatbot/recommendation/free-text")
 def freetext_rag(req: FreeTextRequest):
     # 필수 필드 검사
     if not req.userMessage:
-        raise HTTPException(status_code=400, detail="userMessage는 필수입니다.")
+        return JSONResponse(
+            status_code=400,
+            content={
+                "status": 400,
+                "message": "userMessage는 필수입니다.",
+                "data": None
+            }
+        )
     if len(req.userMessage.strip()) < 5:
-        raise HTTPException(status_code=422, detail="userMessage는 문자열이어야 하며, 최소 5자 이상의 문자열이어야 합니다.")
+        return JSONResponse(
+            status_code=422,
+            content={
+                "status": 422,
+                "message": "userMessage는 문자열이어야 하며, 최소 5자 이상의 문자열이어야 합니다.",
+                "data": None
+            }
+        )
         
     message_lower = req.userMessage.lower()
     if not any(k in req.userMessage for k in ENV_KEYWORDS) or any(b in message_lower for b in BAD_WORDS):
@@ -106,29 +149,3 @@ def freetext_rag(req: FreeTextRequest):
         raise http_err  # 내부 HTTPException을 먼저 처리
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"AI 서버로부터 추천 결과를 받아오는 데 실패했습니다.\n{str(e)}")
-
-
-
-# 백엔드와 테스트용으로 FastAPI와 Spring 간의 통신을 위한 엔드포인트 추가
-# FastAPI → Spring: GET 
-@app.get("/fastapi/call-spring")
-def call_spring_get():
-    res = requests.get("http://localhost:8080/spring/hello")
-    return {"from_spring": res.text}
-
-# FastAPI → Spring: POST
-@app.post("/fastapi/call-spring")
-def call_spring_post():
-    res = requests.post("http://localhost:8080/spring/echo", json={"message": "방가방가!"})
-    return {"from_spring": res.text}
-
-# Spring → FastAPI: GET 수신
-@app.get("/fastapi/hello")
-def receive_get():
-    return "Hello from FastAPI!"
-
-# Spring → FastAPI: POST 수신
-@app.post("/fastapi/echo")
-async def receive_post(request: Request):
-    data = await request.json()
-    return {"fastapi_received": data.get("message", "방가방가!")}
