@@ -1,6 +1,6 @@
 # Gemini LLM + LangChain
-from chatbot_llm_model_vertex import base_prompt, get_llm_response
-from chatbot_langchain_rag_chain import qa_chain, retriever
+from chatbot_base_info_model import base_prompt, get_llm_response
+from chatbot_free_text_model import qa_chain, retriever
 from fastapi.responses import JSONResponse
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
@@ -62,7 +62,8 @@ def select_category(req: CategoryRequest):
                 "data": None
             }
         )
-    # 필드 값 검사
+
+    # LLM 호출을 위한 prompt 구성
     prompt = base_prompt.format(
         location=req.location,
         workType=req.workType,
@@ -72,7 +73,7 @@ def select_category(req: CategoryRequest):
         response = get_llm_response(prompt)
         return response
     except HTTPException as http_err:
-        raise http_err  # 내부 HTTPException은 그대로 전달
+        raise http_err # 내부 HTTPException을 먼저 처리
     except Exception as e:
         return JSONResponse(
             status_code=502,
