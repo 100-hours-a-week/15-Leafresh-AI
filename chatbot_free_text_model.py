@@ -62,4 +62,5 @@ llm = VertexAI(model_name="gemini-2.0-flash", temperature=0.7)
 # LLMChain 체인 생성 (retriever는 app_router에서 별도 사용)
 qa_chain = LLMChain(
     llm=llm,
-    prompt=custom_promp
+    prompt=custom_prompt
+)
