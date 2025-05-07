@@ -2,7 +2,7 @@
 # 챌린지 문서 생성기
 import random
 
-def generate_challenge_docs(file_path="challenge_docs.txt", mode="random", num_paragraphs=100):# fixed, random으로 변경 가능
+def generate_challenge_docs(file_path="challenge_docs.txt", mode="random", num_paragraphs=100):
     """
     챌린지 문서를 생성합니다.
 
