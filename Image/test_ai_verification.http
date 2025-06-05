@@ -1,6 +1,7 @@
 ### 챌린지 이미지 인증 요청 테스트 (FastAPI)
-POST http://localhost:8000/ai/image/verification
+POST http://localhost:7000/ai/image/verification
 Content-Type: application/json
+
 
 {
   "verificationId": 110,

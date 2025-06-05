@@ -3,9 +3,10 @@ POST http://localhost:9000/ai/chatbot/recommendation/base-info
 Content-Type: application/json
 
 {
+  "sessionId": "user123",
   "location": "도시",
   "workType": "사무직",
-  "category": "비건"
+  "category": "제로웨이스트"
 }
 
 ###
@@ -15,5 +16,6 @@ POST http://localhost:9000/ai/chatbot/recommendation/free-text
 Content-Type: application/json
 
 {
-  "message": "비건 관련 챌린지 추천"
+  "sessionId": "user123",
+  "message": "아무거나 추천"
 }

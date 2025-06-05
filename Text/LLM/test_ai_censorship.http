@@ -1,5 +1,5 @@
 ### 챌린지 이미지 인증 요청 테스트 (FastAPI)
-POST http://localhost:8000/ai/challenges/group/validation
+POST http://localhost:9000/ai/challenges/group/validation
 Content-Type: application/json
 
 {
