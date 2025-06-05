@@ -189,8 +189,10 @@ jobs:
             sleep 5
 
             echo "기존 소스코드 제거 및 새로운 코드 다운로드"
-            cd ~
-            rm -rf 15_Leafresh-AI || pwd
+            pwd
+            ls -al
+            cd /home/${USER:-ubuntu}
+            rm -rf 15_Leafresh-AI
             git clone https://github.com/100-hours-a-week/15-Leafresh-AI.git
 
             echo "venv 활성화 및 requirements.txt 갱신 확인"
