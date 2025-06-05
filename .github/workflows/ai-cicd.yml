@@ -82,13 +82,13 @@ jobs:
         run: |
           if [[ "${{ github.event.inputs.target_test }}" == *"mac"* ]]; then
             cd Text/LLM
-            nohup uvicorn main:app --host 0.0.0.0 --port 8000 --reload --env-file .env > uvicorn.log 2>&1 &
+            nohup uvicorn main:app --host 0.0.0.0 --port 8000 --reload --env-file $GITHUB_WORKSPACE/.env > uvicorn.log 2>&1 &
             sleep 30
             cat uvicorn.log
             chmod +x censorship_curl_test.sh && ./censorship_curl_test.sh
           else
             cd Image
-            nohup uvicorn main:app --host 0.0.0.0 --port 8000 --reload --env-file .env > uvicorn.log 2>&1 &
+            nohup uvicorn main:app --host 0.0.0.0 --port 8000 --reload --env-file $GITHUB_WORKSPACE/.env > uvicorn.log 2>&1 &
             sleep 30
             cat uvicorn.log
             chmod +x verify_curl_test.sh && ./verify_curl_test.sh
