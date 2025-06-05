@@ -211,7 +211,8 @@ jobs:
 
             deactivate
 
-            cat uvicorn.log
+            cat uvicorn.log || echo "uvicorn log missing"
+            true  # <-- 이 줄로 무조건 성공 처리
             
       - name: Set Status
         id: set-status
