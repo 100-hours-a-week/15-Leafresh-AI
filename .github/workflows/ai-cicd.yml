@@ -184,8 +184,8 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 22
           script: |
-            # set -e
-            pkill -f uvicorn || echo "uvicorn not running, skipping"
+            pwd
+            # pkill -f uvicorn || echo "uvicorn not running, skipping"
             sleep 5
             
             rm -rf 15_Leafresh-AI
@@ -195,7 +195,7 @@ jobs:
             cd 15-Leafresh-AI/${{ steps.info.outputs.dir }}
             pip install -r requirements.txt
 
-            echo "$ENV_DEV" > .env
+            echo "${{ secrets.ENV_AI_DEV }}" > .env
             
             while IFS= read -r line; do
               if [[ "$line" == *=* && "$line" != \#* ]]; then
@@ -204,7 +204,7 @@ jobs:
             done < .env
             
             filename=$(grep "^GOOGLE_APPLICATION_CREDENTIALS=" .env | cut -d '=' -f2)
-            echo "$GOOGLE_CREDENTIAL_JSON_BASE64" | base64 -d > "$filename"
+            echo "${{ secrets.GCP_SA_KEY_DEV_BASE64 }}" | base64 -d > "$filename"
             jq . "$filename" > /dev/null
             
             nohup uvicorn main:app --host 0.0.0.0 --port 8000 --env-file .env > uvicorn.log 2>&1 &
