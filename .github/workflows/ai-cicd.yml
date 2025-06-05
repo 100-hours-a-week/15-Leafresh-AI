@@ -195,11 +195,11 @@ jobs:
             rm -rf 15-Leafresh-AI
 
             if [ -d 15-Leafresh-AI ]; then
-              echo "❌ 삭제 실패: 디렉토리가 여전히 존재합니다"
+              echo "삭제 실패: 디렉토리가 여전히 존재합니다"
               exit 1
             fi
 
-            echo "✅ 디렉토리 삭제 성공, git clone 수행"
+            echo "디렉토리 삭제 성공, git clone 수행"
             git clone https://github.com/100-hours-a-week/15-Leafresh-AI.git
 
             echo "venv 활성화 및 requirements.txt 갱신 확인"
@@ -219,9 +219,20 @@ jobs:
             done < .env
 
             echo "Google Credentials 생성"
-            filename=$(grep "^GOOGLE_APPLICATION_CREDENTIALS=" .env | cut -d '=' -f2 | xargs)
+            filename=$(grep "GOOGLE_APPLICATION_CREDENTIALS=" .env | sed 's/^[[:space:]]*//' | cut -d '=' -f2 | xargs)
+            
+            if [ -z "$filename" ]; then
+              echo "❌ ERROR: GOOGLE_APPLICATION_CREDENTIALS 키가 .env에 없습니다"
+              cat .env
+              exit 1
+            fi
+
+            echo "저장할 파일명: $filename"
             echo "${{ secrets.GCP_SA_KEY_DEV_BASE64 }}" | base64 -d > "$filename"
-            jq . "$filename" > /dev/null
+            
+            # 유효한 JSON인지 확인
+            jq . "$filename" > /dev/null || { echo "❌ JSON 파일 확인 실패"; exit 1; }
+
 
             echo "uvicorn 실행"
             nohup uvicorn main:app --host 0.0.0.0 --port 8000 --env-file .env > uvicorn.log 2>&1 &
