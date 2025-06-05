@@ -184,7 +184,7 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 22
           script: |
-            set -e
+            # set -e
             pkill -f uvicorn || echo "uvicorn not running, skipping"
             sleep 5
             
