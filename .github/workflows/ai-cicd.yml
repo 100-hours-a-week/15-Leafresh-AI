@@ -184,17 +184,20 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 22
           script: |
-            pwd
+            echo "기존 uvicorn 종료"
             # pkill -f uvicorn || echo "uvicorn not running, skipping"
             sleep 5
-            
+
+            echo "기존 소스코드 제거 및 새로운 코드 다운로드"
             rm -rf 15_Leafresh-AI
             git clone https://github.com/100-hours-a-week/15-Leafresh-AI.git
-            
+
+            echo "venv 활성화 및 requirements.txt 갱신 확인"
             source .venv/bin/activate
             cd 15-Leafresh-AI/${{ steps.info.outputs.dir }}
             pip install -r requirements.txt
 
+            echo "env 파일 생성"
             echo "${{ secrets.ENV_AI_DEV }}" > .env
             
             while IFS= read -r line; do
@@ -202,15 +205,20 @@ jobs:
                 echo "$line"
               fi
             done < .env
-            
-            filename=$(grep "^GOOGLE_APPLICATION_CREDENTIALS=" .env | cut -d '=' -f2)
+
+            echo "Google Credentials 생성"
+            filename=$(grep "^GOOGLE_APPLICATION_CREDENTIALS=" .env | cut -d '=' -f2 | xargs)
             echo "${{ secrets.GCP_SA_KEY_DEV_BASE64 }}" | base64 -d > "$filename"
             jq . "$filename" > /dev/null
-            
+
+            echo "uvicorn 실행"
             nohup uvicorn main:app --host 0.0.0.0 --port 8000 --env-file .env > uvicorn.log 2>&1 &
 
+            echo "venv 종료"
             deactivate
 
+            echo "로그 확인"
+            sleep 20
             cat uvicorn.log || echo "uvicorn log missing"
             true  # <-- 이 줄로 무조건 성공 처리
             
