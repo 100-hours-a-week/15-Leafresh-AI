@@ -28,9 +28,9 @@ jobs:
     name: Unit Test & Integration Test - 자체 모델
     if: github.event_name == 'workflow_dispatch' && contains(github.event.inputs.target_test, '-dev')
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ${{ contains(github.event.inputs.target_test, 'mac') && './Text/LLM' || './Image' }}
+    # defaults:
+    #   run:
+    #     working-directory: ${{ contains(github.event.inputs.target_test, 'mac') && './Text/LLM' || './Image' }}
     env:
       GOOGLE_CREDENTIAL_JSON_BASE64: ${{ secrets.GCP_SA_KEY_DEV_BASE64 }}
       ENV_DEV: ${{ secrets.ENV_AI_DEV }}
