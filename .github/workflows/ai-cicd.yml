@@ -184,6 +184,9 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 22
           script: |
+            pkill -f uvicorn
+            sleep 5
+            rm -rf 15_Leafresh-AI
             git clone https://github.com/100-hours-a-week/15-Leafresh-AI.git
             cd 15-Leafresh-AI/${{ steps.info.outputs.dir }}
             pip install -r requirements.txt
