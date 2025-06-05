@@ -214,6 +214,7 @@ jobs:
 
             echo "uvicorn 실행"
             nohup uvicorn main:app --host 0.0.0.0 --port 8000 --env-file .env > uvicorn.log 2>&1 &
+            disown
 
             echo "venv 종료"
             deactivate
