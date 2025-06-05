@@ -185,7 +185,13 @@ jobs:
           port: 22
           script: |
             echo "기존 uvicorn 종료 시도"
-            pkill -f uvicorn && echo "uvicorn 종료" || echo "uvicorn 없음"
+            for pid in $(pgrep -f uvicorn); do
+              if [ "$pid" != "$$" ]; then
+                echo "Killing uvicorn PID $pid"
+                kill -15 "$pid"
+              fi
+            done
+
             sleep 5
 
             echo "기존 소스코드 제거 및 새로운 코드 다운로드"
