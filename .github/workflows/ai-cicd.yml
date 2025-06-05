@@ -185,11 +185,12 @@ jobs:
           port: 22
           script: |
             echo "기존 uvicorn 종료"
-            # pkill -f uvicorn || echo "uvicorn not running, skipping"
+            pkill -f uvicorn || echo "uvicorn not running, skipping"
             sleep 5
 
             echo "기존 소스코드 제거 및 새로운 코드 다운로드"
-            rm -rf 15_Leafresh-AI
+            cd ~
+            rm -rf 15_Leafresh-AI || pwd
             git clone https://github.com/100-hours-a-week/15-Leafresh-AI.git
 
             echo "venv 활성화 및 requirements.txt 갱신 확인"
