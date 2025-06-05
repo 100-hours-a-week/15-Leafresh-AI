@@ -184,14 +184,17 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 22
           script: |
+            set -e
             pkill -f uvicorn
             sleep 5
+            
             rm -rf 15_Leafresh-AI
             git clone https://github.com/100-hours-a-week/15-Leafresh-AI.git
+            
+            source .venv/bin/activate
             cd 15-Leafresh-AI/${{ steps.info.outputs.dir }}
             pip install -r requirements.txt
 
-            set -a
             echo "$ENV_DEV" > .env
             
             while IFS= read -r line; do
@@ -203,10 +206,13 @@ jobs:
             filename=$(grep "^GOOGLE_APPLICATION_CREDENTIALS=" .env | cut -d '=' -f2)
             echo "$GOOGLE_CREDENTIAL_JSON_BASE64" | base64 -d > "$filename"
             jq . "$filename" > /dev/null
-            set +a
             
             nohup uvicorn main:app --host 0.0.0.0 --port 8000 --env-file .env > uvicorn.log 2>&1 &
 
+            deactivate
+
+            cat uvicorn.log
+            
       - name: Set Status
         id: set-status
         if: success()
