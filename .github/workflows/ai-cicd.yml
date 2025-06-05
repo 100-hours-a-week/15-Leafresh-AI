@@ -22,6 +22,7 @@ on:
           - mac-dev
           - api-prod
 
+
 jobs:
   unit-and-integration-test-model:
     name: Unit Test & Integration Test - 자체 모델
