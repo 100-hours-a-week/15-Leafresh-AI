@@ -58,7 +58,7 @@ jobs:
           filename=$(grep "^GOOGLE_APPLICATION_CREDENTIALS=" .env | cut -d '=' -f2)
           echo "$GOOGLE_CREDENTIAL_JSON_BASE64" | base64 -d > "$filename"
           jq . "$filename" > /dev/null
-          # echo "GOOGLE_APPLICATION_CREDENTIALS=$filename" >> $GITHUB_ENV
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$PWD/$filename" >> $GITHUB_ENV
       
       - name: Install Dependencies
         run: |
