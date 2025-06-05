@@ -193,7 +193,7 @@ jobs:
             
             while IFS= read -r line; do
               if [[ "$line" == *=* && "$line" != \#* ]]; then
-                echo "$line" >> $GITHUB_ENV
+                echo "$line"
               fi
             done < .env
             
