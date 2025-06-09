@@ -2,19 +2,21 @@ from vertexai import init
 from vertexai.preview.generative_models import GenerativeModel
 from dotenv import load_dotenv
 import os
+import requests
+# import replicate
 
 # 이미지 리사이징 
 from PIL import Image as PILImage
-from vertexai.preview.generative_models import Image as VertexImage
+from vertexai.preview.generative_models import Image as VertexImage   # vertexAI에서만 사용 
 
 # GCP Cloud Storage 연결
 from google.cloud import storage  
 import tempfile                     # 임시 파일 저장용
 
-# LangChain 적용
-from langchain_google_vertexai import VertexAI
+# LangChain PromptTemplate 적용
 from model.verify.event_challenge_prompt import event_challenge_prompts
-
+from model.verify.group_prompt_generator import get_or_create_group_prompt
+from model.verify.personal_challenge_prompt import personal_challenge_prompts
 
 class ImageVerifyModel :
     def __init__(self, credential_env="GOOGLE_APPLICATION_CREDENTIALS", project_id="leafresh", region="us-central1"): 
@@ -26,7 +28,7 @@ class ImageVerifyModel :
         self.storage_client = storage.Client()                                          # GCS 클라이언트 
 
 
-    def image_verify(self, bucket_name: str, blob_name: str, challenge_type: str, challenge_id: int, challenge_name: str) -> str :
+    def image_verify(self, bucket_name: str, blob_name: str, challenge_type: str, challenge_id: int, challenge_name: str, challenge_info: str) -> str :
         try:
             bucket = self.storage_client.bucket(bucket_name)                            # 이미지 업로드 
             blob = bucket.blob(blob_name)                                 
@@ -43,30 +45,36 @@ class ImageVerifyModel :
                         pillow_image = pillow_image.resize((new_width, new_height))
                     pillow_image.save(temp_file.name, format="PNG")
 
-                # VertexAI용 이미지 객체 로드
-                image = VertexImage.load_from_file(temp_file.name)
-                # image = Image.load_from_file(temp_file.name)
+                # VertexAI용 이미지 객체 로드 
+                # image = VertexImage.load_from_file(temp_file.name)
 
-            return self.response(image, challenge_type, challenge_id, challenge_name)
+            return self.response(pillow_image, challenge_type, challenge_id, challenge_name, challenge_info)
 
         except Exception as e:
             return f"[에러] GCS 이미지 로드 실패: {e}" 
 
 
-    def select_prompt(self, challenge_type: str, challenge_id: int):
-        if challenge_type.upper() == "GROUP" and 1 <= challenge_id <= 17:
-            return event_challenge_prompts.get(challenge_id)
+    def select_prompt(self, challenge_type: str, challenge_id: int, challenge_name: str, challenge_info: str):
+        if challenge_type.upper() == "GROUP" :
+            if 1 <= challenge_id <= 17:
+                return event_challenge_prompts.get(challenge_id)
+            else: 
+                return get_or_create_group_prompt(challenge_id, challenge_name, challenge_info)
+        elif challenge_type.upper() == "PERSONAL" :
+            return personal_challenge_prompts.get(challenge_id)
+            
         return None
 
-    def response(self, image, challenge_type, challenge_id, challenge_name):
-        prompt_template = self.select_prompt(challenge_type, challenge_id)
+    def response(self, image, challenge_type, challenge_id, challenge_name, challenge_info):
+        prompt_template = self.select_prompt(challenge_type, challenge_id, challenge_name, challenge_info)
 
-        if prompt_template:
-            # LangChain 방식 (이벤트 챌린지)
-            # llm = VertexAI(model_name="gemini-2.0-flash")
-            # chain = prompt_template | llm
-            # return chain.invoke({"image": image})
+        # LangChain PromptTemplate 객체인 경우 
+        if hasattr(prompt_template, "format_prompt"):
             prompt = prompt_template.format_prompt().to_string()
+        # 단체 챌린지에서 직접 생성한 string의 경우 
+        elif isinstance(prompt_template, str):
+            prompt = prompt_template
+        # 기본 단일 프롬프트 
         else:
             prompt = (
                 f"이 이미지는 '{challenge_name}'에 적합한 이미지 인가요? \n"
@@ -78,7 +86,9 @@ class ImageVerifyModel :
                 "너무 이미지가 흐리거나 블러 처리 되어있는 경우 무조건 '아니오'를 출력해주세요. \n"
                 "적합한 이미지인지 예/아니오로 대답해주세요. 결과는 무조건 예/아니오 로만 대답해주세요. \n"
             )
-            
+
+        
+        # vertex AI API 사용   
         result = self.model.generate_content(
             [prompt, image],
             generation_config={
@@ -90,4 +100,43 @@ class ImageVerifyModel :
         )
 
         return result.text
+        
+
+        # LLaVA-13B 자체 서빙 모델
+        # PIL.Image를 tempfile로 저장한 후 POST 요청
+        # with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as temp_img_file:
+        #     image.save(temp_img_file.name)
+
+        #     with open(temp_img_file.name, 'rb') as f:
+        #         files = {'image': f}
+        #         data = {'prompt': prompt}
+        #         try:
+        #             response = requests.post("http://35.216.16.225:8000/verify-llava", files=files, data=data)
+        #             result = response.json().get("result", "응답 없음")
+        #         except Exception as e:
+        #             result = f"[에러] LLaVA 요청 실패: {e}"
+
+        # return result
     
+        
+        # LLaVA-13B replicate API 사용 
+        # try:
+        #     load_dotenv()
+        #     os.environ["REPLICATE_API_TOKEN"] = os.getenv("REPLICATE_API_TOKEN")
+
+        #     result = replicate.run(
+        #         "yorickvp/llava-v1.6-mistral-7b",
+        #         input={
+        #            "image": image_url,
+        #             "prompt": prompt,
+        #             "max_tokens": 512,
+        #             "temperature": 0.2,
+        #             "top_p": 1
+        #         }
+        #     )
+        # except Exception as e:
+        #     result = f"[에러] Replicate API 호출 실패: {e}"
+
+        # return result
+        
+

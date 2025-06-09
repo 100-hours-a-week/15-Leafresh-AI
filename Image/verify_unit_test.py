@@ -37,7 +37,7 @@ for idx, case in enumerate(test_cases, 1):
 # for idx, case in enumerate(test_cases[63:64], start=64):
     try:
         blob_name = extract_blob_name(case["imageUrl"])
-        output = model.image_verify(BUCKET_NAME, blob_name, case["type"], case["challengeId"], case["challengeName"])
+        output = model.image_verify(BUCKET_NAME, blob_name, case["type"], case["challengeId"], case["challengeName"], case["challengeInfo"])
         result_text = output.strip()
         result = result_text.startswith("예")
         

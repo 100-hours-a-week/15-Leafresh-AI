@@ -18,6 +18,7 @@ class ImageVerificationRequest(BaseModel):
     challengeId: int
     date: str
     challengeName: str
+    challengeInfo: str
 
 # 응답 데이터 모델
 class ImageVerificationResponse(BaseModel):

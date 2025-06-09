@@ -7,6 +7,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/1_%E1%84%89%E1%85%A5%E1%86%BC%E1%84%80%E1%85%A9%E1%86%BC.png",
         "challengeId": 1,
         "challengeName": "텀블러 사용하기 챌린지",
+        "challengeInfo": "",
         "expected": True
     },
     { # 2
@@ -15,6 +16,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/1_%E1%84%89%E1%85%B5%E1%86%AF%E1%84%91%E1%85%A2.png",
         "challengeId": 1,
         "challengeName": "텀블러 사용하기 챌린지",
+        "challengeInfo": "",
         "expected": False
     },
     { # 3
@@ -23,6 +25,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/2_%E1%84%89%E1%85%A5%E1%86%BC%E1%84%80%E1%85%A9%E1%86%BC.jpg",
         "challengeId": 2,
         "challengeName": "에코백 사용하기 챌린지",
+        "challengeInfo": "",
         "expected": True
     },
     { # 4
@@ -31,6 +34,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/2_%E1%84%89%E1%85%B5%E1%86%AF%E1%84%91%E1%85%A2.png",
         "challengeId": 2,
         "challengeName": "에코백 사용하기 챌린지",
+        "challengeInfo": "",
         "expected": False
     },
     { # 5
@@ -39,6 +43,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/3_%E1%84%89%E1%85%A5%E1%86%BC%E1%84%80%E1%85%A9%E1%86%BC.jpg",
         "challengeId": 3,
         "challengeName": "장바구니 사용하기 챌린지",
+        "challengeInfo": "",
         "expected": True
     },
     { # 6
@@ -47,6 +52,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/3_%E1%84%89%E1%85%B5%E1%86%AF%E1%84%91%E1%85%A2.png",
         "challengeId": 3,
         "challengeName": "장바구니 사용하기 챌린지",
+        "challengeInfo": "",
         "expected": False
     },
     { # 7
@@ -55,6 +61,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/4_%E1%84%89%E1%85%A5%E1%86%BC%E1%84%80%E1%85%A9%E1%86%BC.jpg",
         "challengeId": 4,
         "challengeName": "자전거 타기 챌린지",
+        "challengeInfo": "",
         "expected": True
     },
     { # 8
@@ -63,6 +70,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/4_%E1%84%89%E1%85%B5%E1%86%AF%E1%84%91%E1%85%A2.png",
         "challengeId": 4,
         "challengeName": "자전거 타기 챌린지",
+        "challengeInfo": "",
         "expected": False
     },
     { # 9
@@ -71,6 +79,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/5_%E1%84%89%E1%85%A5%E1%86%BC%E1%84%80%E1%85%A9%E1%86%BC.jpg",
         "challengeId": 5,
         "challengeName": "대중교통 이용 챌린지",
+        "challengeInfo": "",
         "expected": True
     },
     { # 10
@@ -79,6 +88,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/5_%E1%84%89%E1%85%B5%E1%86%AF%E1%84%91%E1%85%A2.png",
         "challengeId": 5,
         "challengeName": "대중교통 이용 챌린지",
+        "challengeInfo": "",
         "expected": False
     },
     { # 11
@@ -87,6 +97,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/6_%E1%84%89%E1%85%A5%E1%86%BC%E1%84%80%E1%85%A9%E1%86%BC.jpg",
         "challengeId": 6,
         "challengeName": "샐러드/채식 식단 먹기 챌린지",
+        "challengeInfo": "",
         "expected": True
     },
     { # 12
@@ -95,6 +106,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/6_%E1%84%89%E1%85%B5%E1%86%AF%E1%84%91%E1%85%A2.png",
         "challengeId": 6,
         "challengeName": "샐러드/채식 식단 먹기 챌린지",
+        "challengeInfo": "",
         "expected": False
     },
     { # 13
@@ -103,6 +115,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/7_%E1%84%89%E1%85%A5%E1%86%BC%E1%84%80%E1%85%A9%E1%86%BC.png",
         "challengeId": 7,
         "challengeName": "음식 남기지 않기 챌린지",
+        "challengeInfo": "",
         "expected": True
     },
     { # 14
@@ -111,6 +124,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/7_%E1%84%89%E1%85%B5%E1%86%AF%E1%84%91%E1%85%A2.png",
         "challengeId": 7,
         "challengeName": "음식 남기지 않기 챌린지",
+        "challengeInfo": "",
         "expected": False
     },
     { # 15
@@ -119,6 +133,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/8_%E1%84%89%E1%85%A5%E1%86%BC%E1%84%80%E1%85%A9%E1%86%BC.jpg",
         "challengeId": 8,
         "challengeName": "계단 이용하기 챌린지",
+        "challengeInfo": "",
         "expected": True
     },
     { # 16
@@ -127,6 +142,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/8_%E1%84%89%E1%85%B5%E1%86%AF%E1%84%91%E1%85%A2.png",
         "challengeId": 8,
         "challengeName": "계단 이용하기 챌린지",
+        "challengeInfo": "",
         "expected": False
     },
     { # 17
@@ -135,6 +151,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/9_%E1%84%89%E1%85%A5%E1%86%BC%E1%84%80%E1%85%A9%E1%86%BC.png",
         "challengeId": 9,
         "challengeName": "재활용 분리수거 챌린지",
+        "challengeInfo": "",
         "expected": True
     },
     { # 18
@@ -143,6 +160,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/9_%E1%84%89%E1%85%B5%E1%86%AF%E1%84%91%E1%85%A2.png",
         "challengeId": 9,
         "challengeName": "재활용 분리수거 챌린지",
+        "challengeInfo": "",
         "expected": False
     },
     { # 19
@@ -151,6 +169,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/10_%E1%84%89%E1%85%A5%E1%86%BC%E1%84%80%E1%85%A9%E1%86%BC.png",
         "challengeId": 10,
         "challengeName": "손수건 사용 챌린지",
+        "challengeInfo": "",
         "expected": True
     },
     { # 20
@@ -159,6 +178,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/10_%E1%84%89%E1%85%B5%E1%86%AF%E1%84%91%E1%85%A2.png",
         "challengeId": 10,
         "challengeName": "손수건 사용 챌린지",
+        "challengeInfo": "",
         "expected": False
     },
     { # 21
@@ -167,6 +187,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/11_%E1%84%89%E1%85%A5%E1%86%BC%E1%84%80%E1%85%A9%E1%86%BC.jpg",
         "challengeId": 11,
         "challengeName": "쓰레기 줍기 챌린지",
+        "challengeInfo": "",
         "expected": True
     },
     { # 22
@@ -175,6 +196,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/11_%E1%84%89%E1%85%B5%E1%86%AF%E1%84%91%E1%85%A2.png",
         "challengeId": 11,
         "challengeName": "쓰레기 줍기 챌린지",
+        "challengeInfo": "",
         "expected": False
     },
     { # 23
@@ -183,6 +205,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/12_%E1%84%89%E1%85%A5%E1%86%BC%E1%84%80%E1%85%A9%E1%86%BC.png",
         "challengeId": 12,
         "challengeName": "안쓰는 전기 플러그 뽑기 챌린지",
+        "challengeInfo": "",
         "expected": True
     },
     { # 24
@@ -191,6 +214,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/12_%E1%84%89%E1%85%B5%E1%86%AF%E1%84%91%E1%85%A2.png",
         "challengeId": 12,
         "challengeName": "안쓰는 전기 플러그 뽑기 챌린지",
+        "challengeInfo": "",
         "expected": False
     },
     { # 25
@@ -199,6 +223,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/13_%E1%84%89%E1%85%A5%E1%86%BC%E1%84%80%E1%85%A9%E1%86%BC.jpg",
         "challengeId": 13,
         "challengeName": "고체 비누 사용 챌린지",
+        "challengeInfo": "",
         "expected": True
     },
     { # 26
@@ -207,6 +232,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/13_%E1%84%89%E1%85%B5%E1%86%AF%E1%84%91%E1%85%A2.png",
         "challengeId": 13,
         "challengeName": "고체 비누 사용 챌린지",
+        "challengeInfo": "",
         "expected": False
     },
     { # 27
@@ -215,6 +241,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/14_%E1%84%89%E1%85%A5%E1%86%BC%E1%84%80%E1%85%A9%E1%86%BC.png",
         "challengeId": 14,
         "challengeName": "하루 만보 걷기 챌린지",
+        "challengeInfo": "",
         "expected": True
     },
     { # 28
@@ -223,6 +250,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/14_%E1%84%89%E1%85%B5%E1%86%AF%E1%84%91%E1%85%A2.jpg",
         "challengeId": 14,
         "challengeName": "하루 만보 걷기 챌린지",
+        "challengeInfo": "",
         "expected": False
     },
     { # 29
@@ -231,6 +259,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/15_%E1%84%89%E1%85%A5%E1%86%BC%E1%84%80%E1%85%A9%E1%86%BC.jpg",
         "challengeId": 15,
         "challengeName": "도시락 싸먹기 챌린지",
+        "challengeInfo": "",
         "expected": True
     },
     { # 30
@@ -239,6 +268,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/15_%E1%84%89%E1%85%B5%E1%86%AF%E1%84%91%E1%85%A2.png",
         "challengeId": 15,
         "challengeName": "도시락 싸먹기 챌린지",
+        "challengeInfo": "",
         "expected": False
     },
     { # 31
@@ -247,6 +277,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/16_%E1%84%89%E1%85%A5%E1%86%BC%E1%84%80%E1%85%A9%E1%86%BC.jpg",
         "challengeId": 16,
         "challengeName": "작은 텃밭 가꾸기 챌린지",
+        "challengeInfo": "",
         "expected": True
     },
     { # 32
@@ -255,6 +286,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/16_%E1%84%89%E1%85%B5%E1%86%AF%E1%84%91%E1%85%A2.png",
         "challengeId": 16,
         "challengeName": "작은 텃밭 가꾸기 챌린지",
+        "challengeInfo": "",
         "expected": False
     },
     { # 33
@@ -263,6 +295,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/17_%E1%84%89%E1%85%A5%E1%86%BC%E1%84%80%E1%85%A9%E1%86%BC.png",
         "challengeId": 17,
         "challengeName": "반려 식물 인증 챌린지",
+        "challengeInfo": "",
         "expected": True
     },
     { # 34
@@ -271,6 +304,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/17_%E1%84%89%E1%85%B5%E1%86%AF%E1%84%91%E1%85%A2.png",
         "challengeId": 17,
         "challengeName": "반려 식물 인증 챌린지",
+        "challengeInfo": "",
         "expected": False
     },
     { # 35
@@ -279,6 +313,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/18_%E1%84%89%E1%85%A5%E1%86%BC%E1%84%80%E1%85%A9%E1%86%BC.jpg",
         "challengeId": 18,
         "challengeName": "전자 영수증 받기 챌린지",
+        "challengeInfo": "",
         "expected": True
     },
     { # 36
@@ -287,6 +322,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/18_%E1%84%89%E1%85%B5%E1%86%AF%E1%84%91%E1%85%A2.png",
         "challengeId": 18,
         "challengeName": "전자 영수증 받기 챌린지",
+        "challengeInfo": "",
         "expected": False
     },
     { # 37
@@ -295,6 +331,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/19_%E1%84%89%E1%85%A5%E1%86%BC%E1%84%80%E1%85%A9%E1%86%BC.png",
         "challengeId": 19,
         "challengeName": "친환경 인증 마크 상품 구매하기 챌린지",
+        "challengeInfo": "",
         "expected": True
     },
     { # 38
@@ -303,6 +340,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/19_%E1%84%89%E1%85%B5%E1%86%AF%E1%84%91%E1%85%A2.png",
         "challengeId": 19,
         "challengeName": "친환경 인증 마크 상품 구매하기 챌린지",
+        "challengeInfo": "",
         "expected": False
     },
     { # 39
@@ -311,6 +349,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/20_%E1%84%89%E1%85%A5%E1%86%BC%E1%84%80%E1%85%A9%E1%86%BC.jpg",
         "challengeId": 20,
         "challengeName": "다회용기 사용하기 챌린지",
+        "challengeInfo": "",
         "expected": True
     },
     { # 40
@@ -319,6 +358,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/20_%E1%84%89%E1%85%B5%E1%86%AF%E1%84%91%E1%85%A2.png",
         "challengeId": 20,
         "challengeName": "다회용기 사용하기 챌린지",
+        "challengeInfo": "",
         "expected": False
     },
     { # 41
@@ -327,6 +367,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/21_%E1%84%89%E1%85%A5%E1%86%BC%E1%84%80%E1%85%A9%E1%86%BC.png",
         "challengeId": 21,
         "challengeName": "대나무 칫솔 사용하기 챌린지",
+        "challengeInfo": "",
         "expected": True
     },
     { # 42
@@ -335,6 +376,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/21_%E1%84%89%E1%85%B5%E1%86%AF%E1%84%91%E1%85%A2.png",
         "challengeId": 21,
         "challengeName": "대나무 칫솔 사용하기 챌린지",
+        "challengeInfo": "",
         "expected": False
     },
     # 이벤트 챌린지 -> 멀티 프롬프팅 필요 + challengeId를 기준으로 나누면 될 듯 
@@ -344,6 +386,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/1_%E1%84%8B%E1%85%B5%E1%84%87%E1%85%A6%E1%86%AB%E1%84%90%E1%85%B3_%E1%84%89%E1%85%A5%E1%86%BC%E1%84%80%E1%85%A9%E1%86%BC.png",
         "challengeId": 1,
         "challengeName": "SNS에 습지 보호 캠페인 알리기",
+        "challengeInfo": "",
         "expected": True
     },
     { # 44
@@ -352,6 +395,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/1_%E1%84%8B%E1%85%B5%E1%84%87%E1%85%A6%E1%86%AB%E1%84%90%E1%85%B3_%E1%84%89%E1%85%B5%E1%86%AF%E1%84%91%E1%85%A2.png",
         "challengeId": 1,
         "challengeName": "SNS에 습지 보호 캠페인 알리기",
+        "challengeInfo": "",
         "expected": False
     },
     { # 45 
@@ -360,6 +404,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/3_%E1%84%8B%E1%85%B5%E1%84%87%E1%85%A6%E1%86%AB%E1%84%90%E1%85%B3_%E1%84%89%E1%85%A5%E1%86%BC%E1%84%80%E1%85%A9%E1%86%BC.png",
         "challengeId": 3,
         "challengeName": "생명의 물을 지켜요! 생활 속 절수+물길 정화 캠페인",
+        "challengeInfo": "",
         "expected": True
     },
     { # 46
@@ -368,6 +413,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/3_%E1%84%8B%E1%85%B5%E1%84%87%E1%85%A6%E1%86%AB%E1%84%90%E1%85%B3_%E1%84%89%E1%85%B5%E1%86%AF%E1%84%91%E1%85%A2.png",
         "challengeId": 3,
         "challengeName": "생명의 물을 지켜요! 생활 속 절수+물길 정화 캠페인",
+        "challengeInfo": "",
         "expected": False
     },
     { # 47
@@ -376,6 +422,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/4_%E1%84%8B%E1%85%B5%E1%84%87%E1%85%A6%E1%86%AB%E1%84%90%E1%85%B3_%E1%84%89%E1%85%A5%E1%86%BC%E1%84%80%E1%85%A9%E1%86%BC.png",
         "challengeId": 4,
         "challengeName": "오늘 내가 심은 나무 한 그루",
+        "challengeInfo": "",
         "expected": True
     },
     { # 48
@@ -384,6 +431,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/4_%E1%84%8B%E1%85%B5%E1%84%87%E1%85%A6%E1%86%AB%E1%84%90%E1%85%B3_%E1%84%89%E1%85%B5%E1%86%AF%E1%84%91%E1%85%A2.png",
         "challengeId": 4,
         "challengeName": "오늘 내가 심은 나무 한 그루",
+        "challengeInfo": "",
         "expected": False
     },
     { # 49
@@ -392,6 +440,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/5_%E1%84%8B%E1%85%B5%E1%84%87%E1%85%A6%E1%86%AB%E1%84%90%E1%85%B3_%E1%84%89%E1%85%A5%E1%86%BC%E1%84%80%E1%85%A9%E1%86%BC.png",
         "challengeId": 5,
         "challengeName": "지구야, 미안하고 고마워 🌍 편지 쓰기 챌린지",
+        "challengeInfo": "",
         "expected": True
     },
     { # 50
@@ -400,6 +449,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/5_%E1%84%8B%E1%85%B5%E1%84%87%E1%85%A6%E1%86%AB%E1%84%90%E1%85%B3_%E1%84%89%E1%85%B5%E1%86%AF%E1%84%91%E1%85%A2.png",
         "challengeId": 5,
         "challengeName": "지구야, 미안하고 고마워 🌍 편지 쓰기 챌린지",
+        "challengeInfo": "",
         "expected": False
     },
     { # 51
@@ -408,6 +458,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/7_%E1%84%8B%E1%85%B5%E1%84%87%E1%85%A6%E1%86%AB%E1%84%90%E1%85%B3_%E1%84%89%E1%85%A5%E1%86%BC%E1%84%80%E1%85%A9%E1%86%BC.png",
         "challengeId": 7,
         "challengeName": "착한 소비, 지구도 사람도 웃게 해요",
+        "challengeInfo": "",
         "expected": True
     },
     { # 52
@@ -416,6 +467,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/7_%E1%84%8B%E1%85%B5%E1%84%87%E1%85%A6%E1%86%AB%E1%84%90%E1%85%B3_%E1%84%89%E1%85%B5%E1%86%AF%E1%84%91%E1%85%A2.png",
         "challengeId": 7,
         "challengeName": "착한 소비, 지구도 사람도 웃게 해요",
+        "challengeInfo": "",
         "expected": False
     },
     { # 53
@@ -424,6 +476,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/8_%E1%84%8B%E1%85%B5%E1%84%87%E1%85%A6%E1%86%AB%E1%84%90%E1%85%B3_%E1%84%89%E1%85%A5%E1%86%BC%E1%84%80%E1%85%A9%E1%86%BC.png",
         "challengeId": 8,
         "challengeName": "오늘은 바다를 위해 한 걸음",
+        "challengeInfo": "",
         "expected": True
     },
     { # 54
@@ -432,6 +485,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/8_%E1%84%8B%E1%85%B5%E1%84%87%E1%85%A6%E1%86%AB%E1%84%90%E1%85%B3_%E1%84%89%E1%85%B5%E1%86%AF%E1%84%91%E1%85%A2.png",
         "challengeId": 8,
         "challengeName": "오늘은 바다를 위해 한 걸음",
+        "challengeInfo": "",
         "expected": False
     },
     { # 55
@@ -440,6 +494,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/9_%E1%84%8B%E1%85%B5%E1%84%87%E1%85%A6%E1%86%AB%E1%84%90%E1%85%B3_%E1%84%89%E1%85%A5%E1%86%BC%E1%84%80%E1%85%A9%E1%86%BC.png",
         "challengeId": 9,
         "challengeName": "나의 환경 한 가지 실천 DAY",
+        "challengeInfo": "",
         "expected": True
     },
     { # 56
@@ -448,6 +503,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/9_%E1%84%8B%E1%85%B5%E1%84%87%E1%85%A6%E1%86%AB%E1%84%90%E1%85%B3_%E1%84%89%E1%85%B5%E1%86%AF%E1%84%91%E1%85%A2.png",
         "challengeId": 9,
         "challengeName": "나의 환경 한 가지 실천 DAY",
+        "challengeInfo": "",
         "expected": False
     },
     { # 57
@@ -456,6 +512,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/10_%E1%84%8B%E1%85%B5%E1%84%87%E1%85%A6%E1%86%AB%E1%84%90%E1%85%B3_%E1%84%89%E1%85%A5%E1%86%BC%E1%84%80%E1%85%A9%E1%86%BC.png",
         "challengeId": 10,
         "challengeName": "양치컵 하나로 지구를 살려요!",
+        "challengeInfo": "",
         "expected": True
     },
     { # 58
@@ -464,6 +521,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/10_%E1%84%8B%E1%85%B5%E1%84%87%E1%85%A6%E1%86%AB%E1%84%90%E1%85%B3_%E1%84%89%E1%85%B5%E1%86%AF%E1%84%91%E1%85%A2.png",
         "challengeId": 10,
         "challengeName": "양치컵 하나로 지구를 살려요!",
+        "challengeInfo": "",
         "expected": False
     },
     { # 59
@@ -472,6 +530,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/11_%E1%84%8B%E1%85%B5%E1%84%87%E1%85%A6%E1%86%AB%E1%84%90%E1%85%B3_%E1%84%89%E1%85%A5%E1%86%BC%E1%84%80%E1%85%A9%E1%86%BC.png",
         "challengeId": 11,
         "challengeName": "호랑이를 지켜요! 숲을 위한 하루",
+        "challengeInfo": "",
         "expected": True
     },
     { # 60
@@ -480,6 +539,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/11_%E1%84%8B%E1%85%B5%E1%84%87%E1%85%A6%E1%86%AB%E1%84%90%E1%85%B3_%E1%84%89%E1%85%B5%E1%86%AF%E1%84%91%E1%85%A2.png",
         "challengeId": 11,
         "challengeName": "호랑이를 지켜요! 숲을 위한 하루",
+        "challengeInfo": "",
         "expected": False
     },
     { # 61
@@ -488,6 +548,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/12_%E1%84%8B%E1%85%B5%E1%84%87%E1%85%A6%E1%86%AB%E1%84%90%E1%85%B3_%E1%84%89%E1%85%A5%E1%86%BC%E1%84%80%E1%85%A9%E1%86%BC.png",
         "challengeId": 12,
         "challengeName": "꺼주세요 1시간! 에너지를 아끼는 시간 OFF",
+        "challengeInfo": "",
         "expected": True
     },
     { # 62
@@ -496,6 +557,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/12_%E1%84%8B%E1%85%B5%E1%84%87%E1%85%A6%E1%86%AB%E1%84%90%E1%85%B3_%E1%84%89%E1%85%B5%E1%86%AF%E1%84%91%E1%85%A2.png",
         "challengeId": 12,
         "challengeName": "꺼주세요 1시간! 에너지를 아끼는 시간 OFF",
+        "challengeInfo": "",
         "expected": False
     },
     { # 63
@@ -504,6 +566,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/13_%E1%84%8B%E1%85%B5%E1%84%87%E1%85%A6%E1%86%AB%E1%84%90%E1%85%B3_%E1%84%89%E1%85%A5%E1%86%BC%E1%84%80%E1%85%A9%E1%86%BC.png",
         "challengeId": 13,
         "challengeName": "버리지 마세요! 오늘은 자원순환 챌린지",
+        "challengeInfo": "",
         "expected": True
     },
     { # 64
@@ -512,6 +575,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/13_%E1%84%8B%E1%85%B5%E1%84%87%E1%85%A6%E1%86%AB%E1%84%90%E1%85%B3_%E1%84%89%E1%85%B5%E1%86%AF%E1%84%91%E1%85%A2.png",
         "challengeId": 13,
         "challengeName": "버리지 마세요! 오늘은 자원순환 챌린지",
+        "challengeInfo": "",
         "expected": False
     },
     { # 65
@@ -520,6 +584,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/14_%E1%84%8B%E1%85%B5%E1%84%87%E1%85%A6%E1%86%AB%E1%84%90%E1%85%B3_%E1%84%89%E1%85%A5%E1%86%BC%E1%84%80%E1%85%A9%E1%86%BC.png",
         "challengeId": 14,
         "challengeName": "오늘은 걷거나 타세요! Car-Free 실천 챌린지",
+        "challengeInfo": "",
         "expected": True
     },
     { # 66
@@ -528,6 +593,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/14_%E1%84%8B%E1%85%B5%E1%84%87%E1%85%A6%E1%86%AB%E1%84%90%E1%85%B3_%E1%84%89%E1%85%B5%E1%86%AF%E1%84%91%E1%85%A2.png",
         "challengeId": 14,
         "challengeName": "오늘은 걷거나 타세요! Car-Free 실천 챌린지",
+        "challengeInfo": "",
         "expected": False
     },
     { # 67
@@ -536,6 +602,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/15_%E1%84%8B%E1%85%B5%E1%84%87%E1%85%A6%E1%86%AB%E1%84%90%E1%85%B3_%E1%84%89%E1%85%A5%E1%86%BC%E1%84%80%E1%85%A9%E1%86%BC.png",
         "challengeId": 15,
         "challengeName": "기후재난 이야기 공유 챌린지",
+        "challengeInfo": "",
         "expected": True
     },
     { # 68
@@ -544,6 +611,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/15_%E1%84%8B%E1%85%B5%E1%84%87%E1%85%A6%E1%86%AB%E1%84%90%E1%85%B3_%E1%84%89%E1%85%B5%E1%86%AF%E1%84%91%E1%85%A2.png",
         "challengeId": 15,
         "challengeName": "기후재난 이야기 공유 챌린지",
+        "challengeInfo": "",
         "expected": False
     },
     { # 69
@@ -552,6 +620,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/16_%E1%84%8B%E1%85%B5%E1%84%87%E1%85%A6%E1%86%AB%E1%84%90%E1%85%B3_%E1%84%89%E1%85%A5%E1%86%BC%E1%84%80%E1%85%A9%E1%86%BC.png",
         "challengeId": 16,
         "challengeName": "오늘은 비건 한 끼, 지구와 나를 위한 식사",
+        "challengeInfo": "",
         "expected": True
     },
     { # 70
@@ -560,6 +629,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/16_%E1%84%8B%E1%85%B5%E1%84%87%E1%85%A6%E1%86%AB%E1%84%90%E1%85%B3_%E1%84%89%E1%85%B5%E1%86%AF%E1%84%91%E1%85%A2.png",
         "challengeId": 16,
         "challengeName": "오늘은 비건 한 끼, 지구와 나를 위한 식사",
+        "challengeInfo": "",
         "expected": False
     },
     { # 71
@@ -568,6 +638,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/2_%E1%84%8B%E1%85%B5%E1%84%87%E1%85%A6%E1%86%AB%E1%84%90%E1%85%B3_%E1%84%89%E1%85%A5%E1%86%BC%E1%84%80%E1%85%A9%E1%86%BC.png",
         "challengeId": 2,
         "challengeName": "해양 정화로 고래를 지켜요",
+        "challengeInfo": "",
         "expected": True
     },
     { # 72
@@ -576,6 +647,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/2_%E1%84%8B%E1%85%B5%E1%84%87%E1%85%A6%E1%86%AB%E1%84%90%E1%85%B3_%E1%84%89%E1%85%B5%E1%86%AF%E1%84%91%E1%85%A2.png",
         "challengeId": 2,
         "challengeName": "해양 정화로 고래를 지켜요",
+        "challengeInfo": "",
         "expected": False
     },
     { # 73
@@ -584,6 +656,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/6_%E1%84%8B%E1%85%B5%E1%84%87%E1%85%A6%E1%86%AB%E1%84%90%E1%85%B3_%E1%84%89%E1%85%A5%E1%86%BC%E1%84%80%E1%85%A9%E1%86%BC.png",
         "challengeId": 6,
         "challengeName": "음식물도 순환돼요! 퇴비 챌린지",
+        "challengeInfo": "",
         "expected": True
     },
     { # 74
@@ -592,6 +665,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/6_%E1%84%8B%E1%85%B5%E1%84%87%E1%85%A6%E1%86%AB%E1%84%90%E1%85%B3_%E1%84%89%E1%85%B5%E1%86%AF%E1%84%91%E1%85%A2.png",
         "challengeId": 6,
         "challengeName": "음식물도 순환돼요! 퇴비 챌린지",
+        "challengeInfo": "",
         "expected": False
     },
     { # 75
@@ -600,6 +674,7 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/17_%E1%84%8B%E1%85%B5%E1%84%87%E1%85%A6%E1%86%AB%E1%84%90%E1%85%B3_%E1%84%89%E1%85%A5%E1%86%BC%E1%84%80%E1%85%A9%E1%86%BC.png",
         "challengeId": 17,
         "challengeName": "한 뼘의 텃밭, 농민의 마음을 심어요",
+        "challengeInfo": "",
         "expected": True
     },
     { # 76
@@ -608,25 +683,9 @@ test_cases = [
         "imageUrl": "https://storage.googleapis.com/leafresh-images/init/17_%E1%84%8B%E1%85%B5%E1%84%87%E1%85%A6%E1%86%AB%E1%84%90%E1%85%B3_%E1%84%89%E1%85%B5%E1%86%AF%E1%84%91%E1%85%A2.png",
         "challengeId": 17,
         "challengeName": "한 뼘의 텃밭, 농민의 마음을 심어요",
+        "challengeInfo": "",
         "expected": False
     }
 ]
 
-'''
-{ # 
-        "verificationId": 10,
-        "type": "PERSONAL",
-        "imageUrl": "",
-        "challengeId": ,
-        "challengeName": " 챌린지",
-        "expected": True
-    },
-    { # 
-        "verificationId": 20,
-        "type": "PERSONAL",
-        "imageUrl": "",
-        "challengeId": ,
-        "challengeName": " 챌린지",
-        "expected": False
-    },
-'''
+

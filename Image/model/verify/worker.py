@@ -27,19 +27,20 @@ def run_worker():
             challenge_type = data["type"]
             challenge_id = int(data["challengeId"])
             challenge_name = data["challengeName"]
+            challenge_info = data["challengeInfo"]
 
-            result = verifier.image_verify(os.getenv("BUCKET_NAME"), blob_name, challenge_type, challenge_id, challenge_name)
+            result = verifier.image_verify(os.getenv("BUCKET_NAME"), blob_name, challenge_type, challenge_id, challenge_name, challenge_info)
             
             # 로깅용
             print(f"인증 결과: {result}")
 
             # '예' 여부가 정확히 일치할 때만 True
-            # is_verified = result.strip() == "예"
             is_verified = "예" in result.strip().lower()
 
             # 콜백 URL 내 challengeId 치환
             # -> CALLBACK_URL에 {verificationId}가 포함되는 경우, Python에서 실제 전송 전에 .format() 또는 f-string으로 치환해줘야함 
             formatted_url = os.getenv("CALLBACK_URL_VERIFY").format(verificationId=data["verificationId"])
+
 
             
             # 결과 콜백 전송

@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 
 from model.verify.worker import run_worker
 from router.verify_router import router as verify_router
+# from router.llava_router import router as llava_router
 
 load_dotenv()
 
@@ -22,4 +23,5 @@ app = FastAPI(lifespan=lifespan)
 
 # router 등록
 app.include_router(verify_router)
+# app.include_router(llava_router)
 
