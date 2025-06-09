@@ -22,6 +22,7 @@ def run_worker():
         print("callback 메시지 수신됨", message)
         try:
             data = json.loads(message.data.decode("utf-8"))
+
             blob_name = data["imageUrl"].split("/")[-1]
             challenge_type = data["type"]
             challenge_id = int(data["challengeId"])
@@ -41,6 +42,7 @@ def run_worker():
             formatted_url = os.getenv("CALLBACK_URL_VERIFY").format(verificationId=data["verificationId"])
 
 
+            
             # 결과 콜백 전송
             requests.post(formatted_url, json={
                 "type": data["type"],
@@ -49,7 +51,7 @@ def run_worker():
                 "date": data["date"],
                 "result": is_verified
             })
-
+            
             message.ack()
 
         except Exception as e:

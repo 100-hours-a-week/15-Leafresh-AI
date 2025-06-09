@@ -1,23 +1,12 @@
-from model.verify.LLM_verify_model import ImageVerifyModel
-from verify_test_case import test_cases
+from model.censorship.LLM_censorship_model import CensorshipModel
+import time
+from censorship_test_case import test_cases
 import pandas as pd
 from tabulate import tabulate
 from wcwidth import wcswidth
-from urllib.parse import unquote
-import pillow_avif
-import time
 
-model = ImageVerifyModel()
+model = CensorshipModel()
 results = []
-
-BUCKET_NAME = "leafresh-images"
-
-def extract_blob_name(image_url: str) -> str:
-    """imageUrl에서 blob 이름 추출 (예: init/example.png)"""
-    parts = image_url.split("/")
-    init_index = parts.index("init")
-    blob_path = "/".join(parts[init_index:])
-    return unquote(blob_path)
 
 def tabulate_fixed(df: pd.DataFrame):
     """한글 너비 고려한 tabulate 정렬"""
@@ -34,33 +23,21 @@ def tabulate_fixed(df: pd.DataFrame):
 
 count = 0
 for idx, case in enumerate(test_cases, 1):
-# for idx, case in enumerate(test_cases[63:64], start=64):
-    try:
-        blob_name = extract_blob_name(case["imageUrl"])
-        output = model.image_verify(BUCKET_NAME, blob_name, case["type"], case["challengeId"], case["challengeName"], case["challengeInfo"])
-        result_text = output.strip()
-        result = result_text.startswith("예")
-        
-        is_pass = result == case["expected"]
+    result, message = model.validate(case["challengeName"], case["startDate"], case["endDate"], case["challenge"])
+    is_pass = result == case["expected"]
+ 
+    results.append({
+        "Test #": idx,
+        "Challenge Name": case["challengeName"],
+        "Expected": case["expected"],
+        "Actual": result,
+        "Pass": is_pass
+    })
 
-        results.append({
-            "Test #": idx,
-            "verificationId": case["verificationId"],
-            "challengeName": case["challengeName"], 
-            "Expected": case["expected"],
-            "Actual": result,
-            "Pass": is_pass,
-            # "LLM Output": output.strip()
-        })
-
-        if is_pass:
-            print(f"[Test {idx}]")
-        else:
-            print(f"[Test {idx}] ❗")
-
-    except Exception as e:
-        print(f"[Test {idx}] 에러 발생: {e}")
-
+    if is_pass:
+        print(f"[Test {idx}]")
+    else:
+        print(f"[Test {idx}] ❗")
 
 # 보고서 요약 출력
 df = pd.DataFrame(results)
@@ -75,10 +52,10 @@ false_to_true_rate = round((len(false_to_true) / total) * 100, 2)
 true_to_false_rate = round((len(true_to_false) / total) * 100, 2)
 
 # 실패한 테스트 목록 정리
-failed_df = df[df["Pass"] == False][["Test #", "verificationId", "challengeName", "Expected", "Actual"]] #, "LLM Output"]]
+failed_df = df[df["Pass"] == False][["Test #", "Challenge Name", "Expected", "Actual"]]
 
 print("\n" + "=" * 60)
-print("ImageVerifyModel 테스트 보고서 요약")
+print("LLM Censorship Model 테스트 보고서 요약")
 print("=" * 60)
 print(f"  - 총 테스트 수: {total}")
 print(f"  - 통과한 테스트 수: {passed}")
@@ -93,5 +70,6 @@ if not failed_df.empty:
 else:
     print("\n모든 테스트가 통과되었습니다! \n")
 
+# 테스트 종료 후 대기 
 time.sleep(2)
 

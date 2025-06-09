@@ -21,7 +21,7 @@ COLLECTION_NAME = os.getenv("QDRANT_COLLECTION_NAME")
 # Qdrant 클라이언트
 qdrant_client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
 
-# 현재 존재하는 컬렉션 목록 조회
+# 현재 존재하는 컬렉션 목록 조회 
 try:
     existing_collections = qdrant_client.get_collections().collections
     existing_names = [coll.name for coll in existing_collections]
@@ -78,7 +78,7 @@ if RESET_COLLECTION:
 
 def get_content_hash(content):
     """문서 내용의 해시값을 생성하여 중복 체크에 사용"""
-    return hashlib.md5(content.encode()).hexdigest()
+    return hashlib.md5(content.encode()).hexdigest() #MD5 해시는 내용이 조금이라도 다르면 완전히 다른 해시값 생성함
 
 # 문서 생성 및 벡터 저장은 항상 실행
 try:

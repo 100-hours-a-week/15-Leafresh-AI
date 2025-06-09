@@ -688,23 +688,4 @@ test_cases = [
     }
 ]
 
-'''
-{ # 
-        "verificationId": 10,
-        "type": "PERSONAL",
-        "imageUrl": "",
-        "challengeId": ,
-        "challengeName": " 챌린지",
-        "challengeInfo": "",
-        "expected": True
-    },
-    { # 
-        "verificationId": 20,
-        "type": "PERSONAL",
-        "imageUrl": "",
-        "challengeId": ,
-        "challengeName": " 챌린지",
-        "challengeInfo": "",
-        "expected": False
-    },
-'''
+

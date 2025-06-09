@@ -1,0 +1,74 @@
+POST http://localhost:9000/ai/feedback
+Content-Type: application/json
+
+{
+  "memberId": 0,
+  "personalChallenges": [
+    {
+      "id": 0,
+      "title": "string",
+      "isSuccess": true
+    },
+    {
+      "id": 0,
+      "title": "string",
+      "isSuccess": false
+    }
+  ],
+  "groupChallenges": [
+    {
+      "id": 1,
+      "title": "SNS에 습지 보호 캠페인 알리기 2025",
+      "startDate": "2025-02-02T00:00:00",
+      "endDate": "2025-02-08T23:59:59",
+      "submissions": []
+    },
+    {
+      "id": 2,
+      "title": "해양 정화로 고래를 지켜요 2025",
+      "startDate": "2025-02-16T00:00:00",
+      "endDate": "2025-02-22T23:59:59",
+      "submissions": []
+    },
+    {
+      "id": 18,
+      "title": "string",
+      "startDate": "2025-05-22T00:00:00",
+      "endDate": "2025-05-24T23:59:59",
+      "submissions": [
+        {
+          "isSuccess": true,
+          "submittedAt": "2025-05-19T14:28:23.099137"
+        },
+        {
+          "isSuccess": true,
+          "submittedAt": "2025-05-21T18:22:26.969909"
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "title": "string",
+      "startDate": "2025-05-28T00:00:00",
+      "endDate": "2025-05-29T23:59:59",
+      "submissions": [
+        {
+          "isSuccess": true,
+          "submittedAt": "2025-05-21T18:23:22.812628"
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "title": "string",
+      "startDate": "2025-05-28T00:00:00",
+      "endDate": "2025-05-29T23:59:59",
+      "submissions": [
+        {
+          "isSuccess": true,
+          "submittedAt": "2025-05-21T18:23:32.398972"
+        }
+      ]
+    }
+  ]
+}

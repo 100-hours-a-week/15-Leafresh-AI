@@ -1,4 +1,3 @@
-# LLM_chatbot_base_info_model.py
 from google.cloud import aiplatform
 from vertexai.preview.generative_models import GenerativeModel
 from langchain.output_parsers import StructuredOutputParser, ResponseSchema
@@ -45,7 +44,7 @@ base_prompt = PromptTemplate(
 JSON 포맷:
 {escaped_format}
 
-응답은 반드시 위 JSON 형식 그대로 출력하세요.
+응답은 반드시 위 JSON형식 그대로 출력하세요.
 
 """
 )
@@ -53,29 +52,39 @@ JSON 포맷:
 # base-info_Output Parser 정의
 def get_llm_response(prompt):
     try:
-        model = GenerativeModel(model_name=MODEL_NAME)
+        # 이미 초기화된 model 사용
         response = model.generate_content(prompt)
+        
+        if not response or not hasattr(response, 'text'):
+            raise ValueError("모델 응답이 유효하지 않습니다.")
 
-        raw_text = response.text if hasattr(response, 'text') else response
-    
-        if isinstance(raw_text, dict): # dict이면 그대로 사용
-            parsed = raw_text
-        else:
-            text = raw_text.strip()
-            parsed = base_parser.parse(text)
+        raw_text = response.text.strip()
+        print(f"Raw model response: {raw_text}")  # 디버깅용 로그
+
+        try:
+            # JSON 형식인지 확인
+            if raw_text.startswith('{') and raw_text.endswith('}'):
+                parsed = json.loads(raw_text)
+            else:
+                # JSON이 아니면 parser 사용
+                parsed = base_parser.parse(raw_text)
+                
+            # challenges가 문자열인 경우 JSON으로 파싱
             if isinstance(parsed.get("challenges"), str):
-                parsed["challenges"] = json.loads(parsed["challenges"])
+                try:
+                    parsed["challenges"] = json.loads(parsed["challenges"])
+                except json.JSONDecodeError:
+                    raise ValueError("challenges 형식이 올바르지 않습니다.")
 
-        return JSONResponse(
-            status_code=200,
-            content={
-                "status": 200,
-                "message": "성공!",
-                "data": parsed
-            }
-        )
+            return parsed
 
-    except HTTPException as http_err:
-        raise http_err
+        except json.JSONDecodeError as json_err:
+            print(f"JSON 파싱 오류: {str(json_err)}")
+            raise ValueError("응답 형식이 올바르지 않습니다.")
+
+    except ValueError as val_err:
+        print(f"값 검증 오류: {str(val_err)}")
+        raise HTTPException(status_code=400, detail=str(val_err))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"챌린지 추천 중 내부 오류 발생: {str(e)}")
+        print(f"예상치 못한 오류: {str(e)}")
+        raise HTTPException(status_code=502, detail="AI 서버로부터 응답을 받아오는 데 실패했습니다.")
