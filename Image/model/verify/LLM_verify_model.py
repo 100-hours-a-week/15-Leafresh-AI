@@ -87,7 +87,7 @@ class ImageVerifyModel :
                 "적합한 이미지인지 예/아니오로 대답해주세요. 결과는 무조건 예/아니오 로만 대답해주세요. \n"
             )
 
-        ''' 
+        
         # vertex AI API 사용   
         result = self.model.generate_content(
             [prompt, image],
@@ -100,23 +100,23 @@ class ImageVerifyModel :
         )
 
         return result.text
-        '''
+        
 
         # LLaVA-13B 자체 서빙 모델
         # PIL.Image를 tempfile로 저장한 후 POST 요청
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as temp_img_file:
-            image.save(temp_img_file.name)
+        # with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as temp_img_file:
+        #     image.save(temp_img_file.name)
 
-            with open(temp_img_file.name, 'rb') as f:
-                files = {'image': f}
-                data = {'prompt': prompt}
-                try:
-                    response = requests.post("http://35.216.16.225:8000/verify-llava", files=files, data=data)
-                    result = response.json().get("result", "응답 없음")
-                except Exception as e:
-                    result = f"[에러] LLaVA 요청 실패: {e}"
+        #     with open(temp_img_file.name, 'rb') as f:
+        #         files = {'image': f}
+        #         data = {'prompt': prompt}
+        #         try:
+        #             response = requests.post("http://35.216.16.225:8000/verify-llava", files=files, data=data)
+        #             result = response.json().get("result", "응답 없음")
+        #         except Exception as e:
+        #             result = f"[에러] LLaVA 요청 실패: {e}"
 
-        return result
+        # return result
     
         
         # LLaVA-13B replicate API 사용 
