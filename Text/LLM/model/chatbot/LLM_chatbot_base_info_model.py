@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 # 프로젝트 루트 경로 설정
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 MODEL_PATH = os.path.join(project_root, "models", "mistral")
 
 # 모델 경로 확인
