@@ -46,9 +46,9 @@ class ImageVerifyModel :
                     pillow_image.save(temp_file.name, format="PNG")
 
                 # VertexAI용 이미지 객체 로드 
-                # image = VertexImage.load_from_file(temp_file.name)
+                image = VertexImage.load_from_file(temp_file.name)
 
-            return self.response(pillow_image, challenge_type, challenge_id, challenge_name, challenge_info)
+            return self.response(image, challenge_type, challenge_id, challenge_name, challenge_info)
 
         except Exception as e:
             return f"[에러] GCS 이미지 로드 실패: {e}" 
