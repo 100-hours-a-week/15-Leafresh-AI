@@ -120,24 +120,36 @@ async def select_category(
                             "data": parsed_data
                         })
                     except Exception as e:
-                        yield format_sse_response_for_client("error", {
-                            "status": 500,
-                            "message": f"파싱 실패: {str(e)}",
-                            "data": None
-                        })
-                        return
+                        raise HTTPException(
+                            status_code=500,
+                            detail={
+                                "status": 500,
+                                "message": f"파싱 실패: {str(e)}",
+                                "data": None
+                            }
+                        )
                     
                 elif event_type == "error":
-                    yield format_sse_response_for_client("error", data_payload)
-                    return
+                    raise HTTPException(
+                        status_code=500,
+                        detail={
+                            "status": 500,
+                            "message": data_payload.get("message", "알 수 없는 오류가 발생했습니다."),
+                            "data": None
+                        }
+                    )
                 
+        except HTTPException:
+            raise
         except Exception as e:
-            yield format_sse_response_for_client("error", {
-                "status": 500,
-                "message": f"서버 내부 오류로 추천에 실패했습니다: {str(e)}",
-                "data": None
-            })
-            return
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "status": 500,
+                    "message": f"서버 내부 오류로 추천에 실패했습니다: {str(e)}",
+                    "data": None
+                }
+            )
 
     return EventSourceResponse(event_generator())
 
@@ -229,16 +241,26 @@ async def freetext_rag(
                     })
                     
                 elif event_type == "error":
-                    yield format_sse_response_for_client("error", data_payload)
-                    return
+                    raise HTTPException(
+                        status_code=500,
+                        detail={
+                            "status": 500,
+                            "message": data_payload.get("message", "알 수 없는 오류가 발생했습니다."),
+                            "data": None
+                        }
+                    )
                 
+        except HTTPException:
+            raise
         except Exception as e:
-            yield format_sse_response_for_client("error", {
-                "status": 500,
-                "message": f"LLM 응답 스트리밍 중 오류 발생: {str(e)}",
-                "data": None
-            })
-            return
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "status": 500,
+                    "message": f"LLM 응답 스트리밍 중 오류 발생: {str(e)}",
+                    "data": None
+                }
+            )
 
         # 전체 응답 텍스트를 JSON으로 파싱하고 챌린지 이벤트 생성
         try:
@@ -285,39 +307,48 @@ async def freetext_rag(
                 yield format_sse_response_for_client("close", {
                     "status": 200,
                     "message": "모든 챌린지 추천 완료",
-                    "data": None
+                    "data": parsed_response
                 })
             else:
-                yield format_sse_response_for_client("error", {
-                    "status": 500,
-                    "message": "LLM 응답에서 챌린지 정보를 파싱할 수 없습니다. 응답 형식 오류.",
-                    "data": None
-                })
+                raise HTTPException(
+                    status_code=500,
+                    detail={
+                        "status": 500,
+                        "message": "LLM 응답에서 챌린지 정보를 파싱할 수 없습니다. 응답 형식 오류.",
+                        "data": None
+                    }
+                )
 
         except json.JSONDecodeError as jde:
-            yield format_sse_response_for_client("error", {
-                "status": 500,
-                "message": f"LLM 응답 JSON 파싱 오류: {str(jde)}. 원본 응답: {full_response_text[:200]}...",
-                "data": None
-            })
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "status": 500,
+                    "message": f"LLM 응답 JSON 파싱 오류: {str(jde)}. 원본 응답: {full_response_text[:200]}...",
+                    "data": None
+                }
+            )
         except Exception as e:
-            yield format_sse_response_for_client("error", {
-                "status": 500,
-                "message": f"응답 처리 중 예상치 못한 오류 발생: {str(e)}",
-                "data": None
-            })
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "status": 500,
+                    "message": f"응답 처리 중 예상치 못한 오류 발생: {str(e)}",
+                    "data": None
+                }
+            )
 
     return EventSourceResponse(event_generator())
 
-# 세션 초기화 엔드포인트 추가 (필요 시)
-@router.post("/ai/chatbot/clear-conversation")
-async def clear_chat_history(sessionId: str = Query(...)):
-    clear_conversation(sessionId)
-    return JSONResponse(
-        status_code=200,
-        content={
-            "status": 200,
-            "message": f"Session {sessionId} 대화 기록이 초기화되었습니다.",
-            "data": None
-        }
-    )
+# # 세션 초기화 엔드포인트 추가 (필요 시)
+# @router.post("/ai/chatbot/clear-conversation")
+# async def clear_chat_history(sessionId: str = Query(...)):
+#     clear_conversation(sessionId)
+#     return JSONResponse(
+#         status_code=200,
+#         content={
+#             "status": 200,
+#             "message": f"Session {sessionId} 대화 기록이 초기화되었습니다.",
+#             "data": None
+#         }
+#     )
