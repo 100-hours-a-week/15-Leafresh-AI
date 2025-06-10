@@ -8,6 +8,7 @@ pydantic==2.11.5
 pydantic-settings==2.9.1
 pydantic_core==2.33.2
 starlette==0.36.3
+sse-starlette==1.6.5
 
 # === 비동기 처리 & 웹 ===
 aiohttp==3.9.5
@@ -38,29 +39,31 @@ websockets==14.2
 yarl==1.20.0
 
 # === LangChain + 관련 모듈 ===
-langchain==0.3.25
-langchain-community==0.3.24
-langchain-core==0.3.59
-langchain-google-vertexai==2.0.24
-langchain-qdrant==0.2.0
-langchain-text-splitters==0.3.8
-langchainhub==0.1.21
-langgraph==0.4.3
-langgraph-checkpoint==2.0.25
-langgraph-prebuilt==0.1.8
-langgraph-sdk==0.1.69
-langsmith==0.3.42
-openai==1.24.1
+langchain-core>=0.3.0
+langchain>=0.3.25
+langchain-community>=0.3.24
+langchain-huggingface>=0.0.3
+langchain-qdrant>=0.2.0
+langchain-text-splitters>=0.3.8
+langchainhub>=0.1.21
+langgraph>=0.4.3
+langgraph-checkpoint>=2.0.25
+langgraph-prebuilt>=0.1.8
+langgraph-sdk>=0.1.69
+langsmith>=0.3.42
+
+# === Hugging Face ===
+huggingface-hub==0.31.2
+transformers>=4.39.0
+tokenizers>=0.19.1
+--find-links https://download.pytorch.org/whl/cu121
+torch==2.2.1
+torchvision==0.17.1
 
 # === Embedding & VectorDB ===
-huggingface-hub==0.31.2
 qdrant-client==1.10.1
 safetensors==0.5.3
 sentence-transformers==2.6.1
-tokenizers==0.21.1
-torch==2.7.0
-tqdm==4.66.2
-transformers==4.51.3
 xxhash==3.5.0
 zstandard==0.23.0
 
@@ -95,7 +98,7 @@ marshmallow==3.26.1
 mpmath==1.3.0
 networkx==3.4.2
 numexpr==2.10.2
-numpy==2.2.5
+numpy==1.26.3
 pandas==2.2.3
 pyarrow==19.0.1
 pyasn1==0.6.1
@@ -148,3 +151,5 @@ portalocker==2.10.1
 propcache==0.3.1
 proto-plus==1.26.1
 types-requests==2.32.0.20250515
+sentencepiece==0.2.0
+accelerate==0.27.2
