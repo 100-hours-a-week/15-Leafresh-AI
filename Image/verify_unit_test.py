@@ -33,8 +33,8 @@ def tabulate_fixed(df: pd.DataFrame):
     return tabulate(df_fixed, headers="keys", tablefmt="pretty", showindex=False)
 
 count = 0
-for idx, case in enumerate(test_cases, 1):
-# for idx, case in enumerate(test_cases[63:64], start=64):
+# for idx, case in enumerate(test_cases, 1):
+for idx, case in enumerate(test_cases[0:10], start=1):
     try:
         blob_name = extract_blob_name(case["imageUrl"])
         output = model.image_verify(BUCKET_NAME, blob_name, case["type"], case["challengeId"], case["challengeName"], case["challengeInfo"])
