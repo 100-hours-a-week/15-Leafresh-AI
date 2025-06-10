@@ -3,7 +3,6 @@ from vertexai.preview.generative_models import GenerativeModel
 from dotenv import load_dotenv
 import os
 import requests
-# import replicate
 
 # 이미지 리사이징 
 from PIL import Image as PILImage
@@ -18,7 +17,12 @@ from model.verify.event_challenge_prompt import event_challenge_prompts
 from model.verify.group_prompt_generator import get_or_create_group_prompt
 from model.verify.personal_challenge_prompt import personal_challenge_prompts
 
+# LLaVA 모델 로드
+from transformers import AutoProcessor, AutoModelForVision2Seq
+import torch
+
 class ImageVerifyModel :
+    '''
     def __init__(self, credential_env="GOOGLE_APPLICATION_CREDENTIALS", project_id="leafresh", region="us-central1"): 
         # 환경변수 로드 및 인증 초기화
         load_dotenv()
@@ -26,6 +30,13 @@ class ImageVerifyModel :
         init(project=project_id, location=region)                                       # Vertex AI 프로젝트/리전 초기화
         self.model = GenerativeModel("gemini-2.0-flash")                                # 모델 정의
         self.storage_client = storage.Client()                                          # GCS 클라이언트 
+    '''
+
+    def __init__(self, model_dir="./llava_model", device="cuda"):
+        self.device = device
+        self.processor = AutoProcessor.from_pretrained(model_dir)
+        self.model = AutoModelForVision2Seq.from_pretrained(model_dir, torch_dtype=torch.float16, device_map="auto").to(self.device)
+        self.storage_client = storage.Client()                                          
 
 
     def image_verify(self, bucket_name: str, blob_name: str, challenge_type: str, challenge_id: int, challenge_name: str, challenge_info: str) -> str :
@@ -36,9 +47,11 @@ class ImageVerifyModel :
             with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as temp_file:
                 blob.download_to_filename(temp_file.name) 
 
+                # 이미지 열기
+                pillow_image = PILImage.open(temp_file.name).convert("RGB")
+
                 # 이벤트 챌린지인 경우에만 리사이징 수행
                 if challenge_type.upper() == "GROUP" and 1 <= challenge_id <= 17:
-                    pillow_image = PILImage.open(temp_file.name).convert("RGB")
                     if max(pillow_image.size) > 1024:
                         new_width = 1024
                         new_height = int(pillow_image.height * 1024 / pillow_image.width)
@@ -46,9 +59,9 @@ class ImageVerifyModel :
                     pillow_image.save(temp_file.name, format="PNG")
 
                 # VertexAI용 이미지 객체 로드 
-                image = VertexImage.load_from_file(temp_file.name)
+                # image = VertexImage.load_from_file(temp_file.name)
 
-            return self.response(image, challenge_type, challenge_id, challenge_name, challenge_info)
+            return self.response(pillow_image, challenge_type, challenge_id, challenge_name, challenge_info)
 
         except Exception as e:
             return f"[에러] GCS 이미지 로드 실패: {e}" 
@@ -89,54 +102,37 @@ class ImageVerifyModel :
 
         
         # vertex AI API 사용   
-        result = self.model.generate_content(
-            [prompt, image],
-            generation_config={
-                "temperature": 0.4,
-                "top_p": 1,
-                "top_k": 32,
-                "max_output_tokens": 512
-            }
+        # result = self.model.generate_content(
+        #     [prompt, image],
+        #     generation_config={
+        #         "temperature": 0.4,
+        #         "top_p": 1,
+        #         "top_k": 32,
+        #         "max_output_tokens": 512
+        #     }
+        # )
+
+        # return result.text
+        
+
+        # 이미지 열기
+        image_tensor = self.processor(images=image, return_tensors="pt").pixel_values[0].unsqueeze(0).to(self.device)
+        inputs = self.processor(prompt, return_tensors="pt").to(self.device)
+
+        # 모델 인퍼런스
+        outputs = self.model.generate(
+            input_ids=inputs["input_ids"],
+            pixel_values=image_tensor,
+            max_new_tokens=50
         )
 
-        return result.text
+        assistant = self.processor.decode(outputs[0], skip_special_tokens=True)
+
+        if "ASSISTANT:" in result:
+            result = assistant.split("ASSISTANT:")[-1].strip()
+        else:
+            result = assistant.strip()
+        return result
         
-
-        # LLaVA-13B 자체 서빙 모델
-        # PIL.Image를 tempfile로 저장한 후 POST 요청
-        # with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as temp_img_file:
-        #     image.save(temp_img_file.name)
-
-        #     with open(temp_img_file.name, 'rb') as f:
-        #         files = {'image': f}
-        #         data = {'prompt': prompt}
-        #         try:
-        #             response = requests.post("http://35.216.16.225:8000/verify-llava", files=files, data=data)
-        #             result = response.json().get("result", "응답 없음")
-        #         except Exception as e:
-        #             result = f"[에러] LLaVA 요청 실패: {e}"
-
-        # return result
-    
-        
-        # LLaVA-13B replicate API 사용 
-        # try:
-        #     load_dotenv()
-        #     os.environ["REPLICATE_API_TOKEN"] = os.getenv("REPLICATE_API_TOKEN")
-
-        #     result = replicate.run(
-        #         "yorickvp/llava-v1.6-mistral-7b",
-        #         input={
-        #            "image": image_url,
-        #             "prompt": prompt,
-        #             "max_tokens": 512,
-        #             "temperature": 0.2,
-        #             "top_p": 1
-        #         }
-        #     )
-        # except Exception as e:
-        #     result = f"[에러] Replicate API 호출 실패: {e}"
-
-        # return result
         
 
