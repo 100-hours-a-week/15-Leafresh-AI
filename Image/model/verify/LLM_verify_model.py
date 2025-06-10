@@ -35,7 +35,7 @@ class ImageVerifyModel :
     def __init__(self, model_dir="/home/ubuntu/llava_model/models--llava-hf--llava-1.5-13b-hf/snapshots/5dda2880bda009266dda7c4baff660b95ca64540", device="cuda"):
         self.device = device
         self.processor = AutoProcessor.from_pretrained(model_dir)
-        self.model = AutoModelForVision2Seq.from_pretrained(model_dir, torch_dtype=torch.float16, local_files_only=True).to(device)
+        self.model = AutoModelForVision2Seq.from_pretrained(model_dir, torch_dtype=torch.float16, device_map="auto", local_files_only=True)
         self.storage_client = storage.Client()                                          
 
 
@@ -116,8 +116,8 @@ class ImageVerifyModel :
         
 
         # 이미지 열기
-        image_tensor = self.processor(images=image, return_tensors="pt").pixel_values[0].unsqueeze(0).to(self.device)
-        inputs = self.processor(prompt, return_tensors="pt").to(self.device)
+        image_tensor = self.processor(images=image, return_tensors="pt").pixel_values
+        inputs = self.processor(prompt, return_tensors="pt")
 
         # 모델 인퍼런스
         outputs = self.model.generate(
