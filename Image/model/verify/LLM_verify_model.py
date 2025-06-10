@@ -128,10 +128,14 @@ class ImageVerifyModel :
 
         assistant = self.processor.decode(outputs[0], skip_special_tokens=True)
 
+        print("\n[📢 LLaVA 응답 확인]")
+        print(assistant)
+ 
         if "ASSISTANT:" in assistant:
             result = assistant.split("ASSISTANT:")[-1].strip()
         else:
             result = assistant.strip()
+
         return result
         
         
