@@ -123,16 +123,12 @@ class ImageVerifyModel :
         
 
         # 이미지 열기
-        image_tensor = self.processor(images=image, return_tensors="pt").pixel_values
-        inputs = self.processor(prompt, return_tensors="pt")
+        inputs = self.processor(prompt, images=image, return_tensors="pt")
 
-        # 모델 인퍼런스
-        outputs = self.model.generate(
-            input_ids=inputs["input_ids"],
-            pixel_values=image_tensor,
-            max_new_tokens=50
-        )
+        print("[DEBUG] input_ids shape:", inputs["input_ids"].shape)
+        print("[DEBUG] pixel_values shape:", inputs["pixel_values"].shape)
 
+        outputs = self.model.generate(**inputs, max_new_tokens=50)
         assistant = self.processor.decode(outputs[0], skip_special_tokens=True)
 
         print("\n[📢 LLaVA 응답 확인]")
