@@ -35,7 +35,7 @@ class ImageVerifyModel :
     def __init__(self, model_dir="/home/ubuntu/llava_model/models--llava-hf--llava-1.5-13b-hf/snapshots/5dda2880bda009266dda7c4baff660b95ca64540", device="cuda"):
         self.device = device
         self.processor = AutoProcessor.from_pretrained(model_dir)
-        self.model = AutoModelForVision2Seq.from_pretrained(model_dir, torch_dtype=torch.float16, device_map="auto").to(self.device)
+        self.model = AutoModelForVision2Seq.from_pretrained(model_dir, torch_dtype=torch.float16, device_map="auto")
         self.storage_client = storage.Client()                                          
 
 
