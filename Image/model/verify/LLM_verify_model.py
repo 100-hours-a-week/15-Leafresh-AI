@@ -126,6 +126,9 @@ class ImageVerifyModel :
         image_tensor = self.processor(images=image, return_tensors="pt").pixel_values
         inputs = self.processor(prompt, return_tensors="pt")
 
+        print("[DEBUG] image_tensor shape:", image_tensor.shape)
+        print("[DEBUG] input_ids shape:", inputs["input_ids"].shape)
+
         # 모델 인퍼런스
         outputs = self.model.generate(
             input_ids=inputs["input_ids"],
