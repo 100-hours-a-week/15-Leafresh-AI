@@ -86,62 +86,70 @@ class ImageVerifyModel :
         return None
 
     def response(self, image, challenge_type, challenge_id, challenge_name, challenge_info):
-        prompt_template = self.select_prompt(challenge_type, challenge_id, challenge_name, challenge_info)
-        print("[DEBUG] PromptTemplate:", prompt_template)
+        try:
+            prompt_template = self.select_prompt(challenge_type, challenge_id, challenge_name, challenge_info)
+            print("[DEBUG] PromptTemplate:", prompt_template)
 
-        # LangChain PromptTemplate 객체인 경우 
-        if hasattr(prompt_template, "format_prompt"):
-            prompt = prompt_template.format_prompt().to_string()
-        # 단체 챌린지에서 직접 생성한 string의 경우 
-        elif isinstance(prompt_template, str):
-            prompt = prompt_template
-        # 기본 단일 프롬프트 
-        else:
-            prompt = (
-                f"이 이미지는 '{challenge_name}'에 적합한 이미지 인가요? \n"
-                "분위기가 아니라 물체가 존재해야합니다. 텀블러를 사용한 것이 맞으면 모두 '예'로 출력해주세요. \n"
-                "고기를 제외하고 생선은 샐러드/채식 식단으로 모두 '예'를 출력해주세요. \n"
-                "장바구니/에코백 챌린지의 경우 가방이 잘 나와있다면 모두 '예'를 출력해주세요. \n"
-                "만보 걷기 챌린지 같은 경우 10000이상인 숫자가 있으면 '예'를 출력해주세요. \n"
-                "작은 텃밭 가꾸기는 작은 화단의 모습이 나왔을 경우 '예'를 출력해주세요. \n"
-                "너무 이미지가 흐리거나 블러 처리 되어있는 경우 무조건 '아니오'를 출력해주세요. \n"
-                "적합한 이미지인지 예/아니오로 대답해주세요. 결과는 무조건 예/아니오 로만 대답해주세요. \n"
-            )
+            # LangChain PromptTemplate 객체인 경우 
+            if hasattr(prompt_template, "format_prompt"):
+                prompt = prompt_template.format_prompt().to_string()
+            # 단체 챌린지에서 직접 생성한 string의 경우 
+            elif isinstance(prompt_template, str):
+                prompt = prompt_template
+            # 기본 단일 프롬프트 
+            else:
+                prompt = (
+                    f"이 이미지는 '{challenge_name}'에 적합한 이미지 인가요? \n"
+                    "분위기가 아니라 물체가 존재해야합니다. 텀블러를 사용한 것이 맞으면 모두 '예'로 출력해주세요. \n"
+                    "고기를 제외하고 생선은 샐러드/채식 식단으로 모두 '예'를 출력해주세요. \n"
+                    "장바구니/에코백 챌린지의 경우 가방이 잘 나와있다면 모두 '예'를 출력해주세요. \n"
+                    "만보 걷기 챌린지 같은 경우 10000이상인 숫자가 있으면 '예'를 출력해주세요. \n"
+                    "작은 텃밭 가꾸기는 작은 화단의 모습이 나왔을 경우 '예'를 출력해주세요. \n"
+                    "너무 이미지가 흐리거나 블러 처리 되어있는 경우 무조건 '아니오'를 출력해주세요. \n"
+                    "적합한 이미지인지 예/아니오로 대답해주세요. 결과는 무조건 예/아니오 로만 대답해주세요. \n"
+                )
 
-        
-        # vertex AI API 사용   
-        # result = self.model.generate_content(
-        #     [prompt, image],
-        #     generation_config={
-        #         "temperature": 0.4,
-        #         "top_p": 1,
-        #         "top_k": 32,
-        #         "max_output_tokens": 512
-        #     }
-        # )
+            
+            # vertex AI API 사용   
+            # result = self.model.generate_content(
+            #     [prompt, image],
+            #     generation_config={
+            #         "temperature": 0.4,
+            #         "top_p": 1,
+            #         "top_k": 32,
+            #         "max_output_tokens": 512
+            #     }
+            # )
 
-        # return result.text
-        
+            # return result.text
+            
 
-        # 이미지 열기
-        inputs = self.processor(prompt, images=image, return_tensors="pt")
-        inputs = {k: v.to(self.device, dtype=torch.float16) for k, v in inputs.items()}  
-        
-        print("[DEBUG] input_ids shape:", inputs["input_ids"].shape)
-        print("[DEBUG] pixel_values shape:", inputs["pixel_values"].shape)
+            # 이미지 열기
+            inputs = self.processor(prompt, images=image, return_tensors="pt")
+            inputs = {
+                k: v.to(self.device, dtype=torch.float16 if v.dtype == torch.float32 else v.dtype)
+                for k, v in inputs.items()
+            }
+            
+            print("[DEBUG] input_ids shape:", inputs["input_ids"].shape)
+            print("[DEBUG] pixel_values shape:", inputs["pixel_values"].shape)
 
-        outputs = self.model.generate(**inputs, max_new_tokens=50)
-        assistant = self.processor.decode(outputs[0], skip_special_tokens=True)
+            with torch.no_grad():
+                outputs = self.model.generate(**inputs, max_new_tokens=50)
 
-        print("\n[📢 LLaVA 응답 확인]")
-        print(assistant)
- 
-        if "ASSISTANT:" in assistant:
-            result = assistant.split("ASSISTANT:")[-1].strip()
-        else:
-            result = assistant.strip()
+            assistant = self.processor.decode(outputs[0], skip_special_tokens=True)
 
-        return result
+            print("\n[📢 LLaVA 응답 확인]")
+            print(assistant)
+    
+            if "ASSISTANT:" in assistant:
+                return assistant.split("ASSISTANT:")[-1].strip()
+            else:
+                return assistant.strip()
+
+        except Exception as e:
+            print(f"[ERROR] response 함수 내부 에러 발생: {e}")
+            return "[에러] 모델 응답 실패"
         
         
 
