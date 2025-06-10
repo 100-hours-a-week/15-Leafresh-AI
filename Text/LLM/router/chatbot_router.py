@@ -1,5 +1,5 @@
 # chatbot_router.py
-from ..model.chatbot.LLM_chatbot_base_info_model import base_prompt, get_llm_response as get_base_info_llm_response
+from ..model.chatbot.LLM_chatbot_base_info_model import base_prompt, get_llm_response as get_base_info_llm_response, base_parser
 from ..model.chatbot.LLM_chatbot_free_text_model import process_chat, clear_conversation, conversation_states, custom_prompt, get_llm_response as get_free_text_llm_response
 from ..model.chatbot.chatbot_constants import label_mapping, ENV_KEYWORDS, BAD_WORDS
 from fastapi import APIRouter, Query, HTTPException
@@ -90,6 +90,7 @@ async def select_category(
 
         try:
             # 동기 제너레이터를 직접 사용
+            full_response = ""
             for data_payload in get_base_info_llm_response(prompt):
                 event_type = data_payload.get("event_type", "message")
                 
@@ -111,11 +112,20 @@ async def select_category(
                     })
                     
                 elif event_type == "close":
-                    yield format_sse_response_for_client("close", {
-                        "status": 200,
-                        "message": "모든 챌린지 추천 완료",
-                        "data": None
-                    })
+                    try:
+                        parsed_data = base_parser.parse(full_response.strip())
+                        yield format_sse_response_for_client("close", {
+                            "status": 200,
+                            "message": "모든 챌린지 추천 완료",
+                            "data": parsed_data
+                        })
+                    except Exception as e:
+                        yield format_sse_response_for_client("error", {
+                            "status": 500,
+                            "message": f"파싱 실패: {str(e)}",
+                            "data": None
+                        })
+                        return
                     
                 elif event_type == "error":
                     yield format_sse_response_for_client("error", data_payload)
