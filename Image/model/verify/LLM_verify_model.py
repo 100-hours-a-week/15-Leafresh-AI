@@ -92,14 +92,15 @@ class ImageVerifyModel :
 
             # LangChain PromptTemplate 객체인 경우 
             if hasattr(prompt_template, "format_prompt"):
-                prompt = prompt_template.format_prompt().to_string()
+                prompt = f"### Human: <image>\n {prompt_template.format_prompt().to_string()} \n### Assistant:"
             # 단체 챌린지에서 직접 생성한 string의 경우 
             elif isinstance(prompt_template, str):
-                prompt = prompt_template
+                prompt = f"### Human: <image>\n {prompt_template} \n### Assistant:"
             # 기본 단일 프롬프트 
             else:
                 prompt = (
-                    f"이 이미지는 '{challenge_name}'에 적합한 이미지 인가요? \n"
+                    f"### Human: <image> \n"
+                    "이 이미지는 '{challenge_name}'에 적합한 이미지 인가요? \n"
                     "분위기가 아니라 물체가 존재해야합니다. 텀블러를 사용한 것이 맞으면 모두 '예'로 출력해주세요. \n"
                     "고기를 제외하고 생선은 샐러드/채식 식단으로 모두 '예'를 출력해주세요. \n"
                     "장바구니/에코백 챌린지의 경우 가방이 잘 나와있다면 모두 '예'를 출력해주세요. \n"
@@ -107,6 +108,7 @@ class ImageVerifyModel :
                     "작은 텃밭 가꾸기는 작은 화단의 모습이 나왔을 경우 '예'를 출력해주세요. \n"
                     "너무 이미지가 흐리거나 블러 처리 되어있는 경우 무조건 '아니오'를 출력해주세요. \n"
                     "적합한 이미지인지 예/아니오로 대답해주세요. 결과는 무조건 예/아니오 로만 대답해주세요. \n"
+                    "### Assistant: " 
                 )
 
             
@@ -142,8 +144,8 @@ class ImageVerifyModel :
             print("\n[📢 LLaVA 응답 확인]")
             print(assistant)
     
-            if "ASSISTANT:" in assistant:
-                return assistant.split("ASSISTANT:")[-1].strip()
+            if "Assistant:" in assistant:
+                return assistant.split("Assistant:")[-1].strip()
             else:
                 return assistant.strip()
 
