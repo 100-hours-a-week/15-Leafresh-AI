@@ -1,16 +1,23 @@
-from langchain.output_parsers import StructuredOutputParser, ResponseSchema
+from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
-from fastapi import HTTPException
-from fastapi.responses import JSONResponse
+from langchain_qdrant import Qdrant
+from langchain_community.embeddings import SentenceTransformerEmbeddings
+from qdrant_client import QdrantClient
 from dotenv import load_dotenv
-import os
-import json
-import threading
-from typing import Generator, Dict, Any
-from requests.exceptions import HTTPError
+from langchain.output_parsers import StructuredOutputParser, ResponseSchema
+from langgraph.graph import StateGraph, END
+from typing import TypedDict, Annotated, Sequence, Optional, Dict, List, Generator, Any
+from Text.LLM.model.chatbot.chatbot_constants import label_mapping, ENV_KEYWORDS, BAD_WORDS
 from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
 import torch
+import os
+import json
+import random
+import re
+import threading
 import logging
+from fastapi import HTTPException
+from fastapi.responses import JSONResponse
 
 # 로깅 설정
 logging.basicConfig(
@@ -23,13 +30,27 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 # 프로젝트 루트 경로 설정
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-MODEL_PATH = os.path.join(project_root, "models", "mistral")
+current_file = os.path.abspath(__file__)
+logger.info(f"Current file: {current_file}")
+
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
+logger.info(f"Project root: {project_root}")
+
+# 모델 경로 설정
+MODEL_PATH = os.path.join(project_root, "mistral")
+logger.info(f"Model path: {MODEL_PATH}")
 
 # 모델 경로 확인
 if not os.path.exists(MODEL_PATH):
-    raise OSError(f"모델 경로를 찾을 수 없습니다: {MODEL_PATH}\n"
-                 f"먼저 download_Mistral_model.py를 실행하여 모델을 다운로드해주세요.")
+    logger.error(f"모델 경로를 찾을 수 없습니다: {MODEL_PATH}")
+    raise HTTPException(
+        status_code=500,
+        detail={
+            "status": 500,
+            "message": f"모델 경로를 찾을 수 없습니다: {MODEL_PATH}",
+            "data": None
+        }
+    )
 
 logger.info(f"모델 경로: {MODEL_PATH}")
 
@@ -38,17 +59,23 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 logger.info(f"사용 가능한 디바이스: {device}")
 
 # 모델과 토크나이저 초기화
-logger.info("Loading tokenizer...")
 try:
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
+    logger.info("Loading tokenizer...")
+    tokenizer = AutoTokenizer.from_pretrained(
+        "mistralai/Mistral-7B-Instruct-v0.3",
+        cache_dir=MODEL_PATH,
+        torch_dtype=torch.float16
+    )
     logger.info("Loading model...")
     model = AutoModelForCausalLM.from_pretrained(
-        MODEL_PATH,
+        "mistralai/Mistral-7B-Instruct-v0.3",
+        cache_dir=MODEL_PATH,
         device_map="auto",
         torch_dtype=torch.float16,
         low_cpu_mem_usage=True
     )
 except Exception as e:
+    logger.error(f"모델 로딩 실패: {str(e)}")
     raise HTTPException(
         status_code=500,
         detail={
@@ -99,6 +126,7 @@ def format_sse_response(event: str, data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 def get_llm_response(prompt: str) -> Generator[str, None, None]:
+    """LLM 응답을 SSE 형식으로 반환 (서버에서 전체 파싱 후 전달)"""
     try:
         inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
         streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
@@ -130,14 +158,12 @@ def get_llm_response(prompt: str) -> Generator[str, None, None]:
         try:
             parsed_data = base_parser.parse(full_response.strip())
         except Exception as e:
-            raise HTTPException(
-                status_code=500,
-                detail={
+            yield format_sse_response("error", {
                     "status": 500,
                     "message": f"파싱 실패: {str(e)}",
                     "data": None
-                }
-            )
+            })
+            return
 
         # 종료 이벤트
         yield format_sse_response("close", {
@@ -147,11 +173,8 @@ def get_llm_response(prompt: str) -> Generator[str, None, None]:
         })
 
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail={
+        yield format_sse_response("error", {
                 "status": 500,
-                "message": f"LLM 응답 생성 실패: {str(e)}",
+            "message": f"예외 발생: {str(e)}",
                 "data": None
-            }
-        )
+        })
