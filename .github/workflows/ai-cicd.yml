@@ -244,6 +244,14 @@ jobs:
 
             echo "uvicorn 실행 환경 확인"
             ps aux | grep uvicorn
+
+            # Check for errors in uvicorn.log
+            if grep -q -iE "Traceback|error|exception|fail" uvicorn.log; then
+              echo "::error::uvicorn.log에서 오류 감지됨"
+              exit 1
+            else
+              echo "배포 성공"
+            fi
             
       - name: Set Status
         id: set-status
