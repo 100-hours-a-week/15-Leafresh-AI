@@ -124,8 +124,9 @@ class ImageVerifyModel :
         
 
         # 이미지 열기
-        inputs = self.processor(prompt, images=image, return_tensors="pt").to(self.device, torch.float16)
-
+        inputs = self.processor(prompt, images=image, return_tensors="pt")
+        inputs = {k: v.to(self.device, dtype=torch.float16) for k, v in inputs.items()}  
+        
         print("[DEBUG] input_ids shape:", inputs["input_ids"].shape)
         print("[DEBUG] pixel_values shape:", inputs["pixel_values"].shape)
 
