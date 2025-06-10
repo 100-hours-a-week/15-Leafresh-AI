@@ -376,7 +376,7 @@ jobs:
         run: echo "status=success" >> "$GITHUB_OUTPUT"
 
       - name: Set Status (Failure)
-        if: failure() && steps.deploy-model.outcome == 'failure'
+        if: failure() && steps.deploy-api.outcome == 'failure'
         run: echo "status=failure" >> "$GITHUB_OUTPUT"
   
   notify:
