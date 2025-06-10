@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SSE Test</title>
+    <style>
+        #messages {
+            white-space: pre-wrap;
+            font-family: monospace;
+            margin: 20px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            min-height: 200px;
+        }
+    </style>
+</head>
+<body>
+    <h1>SSE Test</h1>
+    <div id="messages"></div>
+
+    <script>
+        const messagesDiv = document.getElementById('messages');
+        
+        function addMessage(message) {
+            messagesDiv.textContent += message + '\n';
+        }
+
+        function connectSSE() {
+            const sessionId = 'user123';
+            const location = encodeURIComponent('도시');
+            const workType = encodeURIComponent('사무직');
+            const category = encodeURIComponent('제로웨이스트');
+            
+            const url = `http://35.216.82.57:8000/ai/chatbot/recommendation/base-info?sessionId=${sessionId}&location=${location}&workType=${workType}&category=${category}`;
+            
+            addMessage('Connecting to: ' + url);
+            
+            const eventSource = new EventSource(url);
+
+            eventSource.onopen = function() {
+                addMessage('Connection opened');
+            };
+
+            eventSource.onmessage = function(event) {
+                addMessage('Received: ' + event.data);
+            };
+
+            eventSource.onerror = function(error) {
+                addMessage('Error: ' + JSON.stringify(error));
+                eventSource.close();
+            };
+
+            // Close connection after 30 seconds
+            setTimeout(() => {
+                eventSource.close();
+                addMessage('Connection closed after timeout');
+            }, 30000);
+        }
+
+        // Start connection when page loads
+        connectSSE();
+    </script>
+</body>
+</html> 

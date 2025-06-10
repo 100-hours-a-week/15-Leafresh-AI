@@ -8,73 +8,94 @@ from langchain.output_parsers import StructuredOutputParser, ResponseSchema
 from langgraph.graph import StateGraph, END
 from typing import TypedDict, Annotated, Sequence, Optional, Dict, List, Generator, Any
 from Text.LLM.model.chatbot.chatbot_constants import label_mapping, ENV_KEYWORDS, BAD_WORDS
-from huggingface_hub import InferenceClient
-from langchain_core.language_models import BaseLLM
-from langchain_core.callbacks import CallbackManagerForLLMRun
-from langchain_core.outputs import LLMResult
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_qdrant import QdrantVectorStore
+from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
+import torch
 import os
 import json
 import random
 import re
-import requests
-from requests.exceptions import HTTPError
-from transformers import TextIteratorStreamer
 import threading
+import logging
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_qdrant import QdrantVectorStore
+from fastapi import HTTPException
 
+# 로깅 설정
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# 환경 변수 로드
 load_dotenv()
 
-class HuggingFaceInferenceLLM(BaseLLM):
-    client: InferenceClient
-    
-    def _call(
-        self,
-        prompt: str,
-        stop: Optional[List[str]] = None,
-        run_manager: Optional[CallbackManagerForLLMRun] = None,
-        **kwargs
-    ) -> str:
-        # 대화 형식으로 변환
-        messages = [{"role": "user", "content": prompt}]
-        response = self.client.text_generation(
-            prompt,
-            max_new_tokens=1024,
-            temperature=0.7,
-            stop=stop or ["</s>", "[INST]"],
-            do_sample=True,
-            model=MODEL_NAME
-        )
-        return response
+# 프로젝트 루트 경로 설정
+current_file = os.path.abspath(__file__)
+logger.info(f"Current file: {current_file}")
 
-    def _generate(
-        self,
-        prompts: List[str],
-        stop: Optional[List[str]] = None,
-        run_manager: Optional[CallbackManagerForLLMRun] = None,
-        **kwargs
-    ) -> LLMResult:
-        generations = []
-        for prompt in prompts:
-            response = self._call(prompt, stop=stop, run_manager=run_manager, **kwargs)
-            generations.append([{"text": response}])
-        return LLMResult(generations=generations)
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
+logger.info(f"Project root: {project_root}")
 
-    @property
-    def _llm_type(self) -> str:
-        return "huggingface_inference"
+# 모델 경로 설정
+MODEL_PATH = os.path.join(project_root, "mistral")
+logger.info(f"Model path: {MODEL_PATH}")
 
-# 환경 변수에서 값 가져오기
-HF_API_KEY = os.getenv("HUGGINGFACE_API_KEYMAC")
-MODEL_NAME = os.getenv("HF_MODEL_NAME", "mistralai/Mistral-7B-Instruct-v0.3")
-API_URL = f"https://api-inference.huggingface.co/models/{MODEL_NAME}"
+# 모델 경로 확인
+if not os.path.exists(MODEL_PATH):
+    logger.error(f"모델 경로를 찾을 수 없습니다: {MODEL_PATH}")
+    raise HTTPException(
+        status_code=500,
+        detail={
+            "status": 500,
+            "message": f"모델 경로를 찾을 수 없습니다: {MODEL_PATH}",
+            "data": None
+        }
+    )
+
+logger.info(f"모델 경로: {MODEL_PATH}")
+
+# GPU 사용 가능 여부 확인
+device = "cuda" if torch.cuda.is_available() else "cpu"
+logger.info(f"사용 가능한 디바이스: {device}")
+
+# 모델과 토크나이저 초기화
+try:
+    logger.info("Loading tokenizer...")
+    tokenizer = AutoTokenizer.from_pretrained(
+        "mistralai/Mistral-7B-Instruct-v0.3",
+        cache_dir=MODEL_PATH,
+        torch_dtype=torch.float16
+    )
+    logger.info("Loading model...")
+    model = AutoModelForCausalLM.from_pretrained(
+        "mistralai/Mistral-7B-Instruct-v0.3",
+        cache_dir=MODEL_PATH,
+        device_map="auto",
+        torch_dtype=torch.float16,
+        low_cpu_mem_usage=True
+    )
+except Exception as e:
+    logger.error(f"모델 로딩 실패: {str(e)}")
+    raise HTTPException(
+        status_code=500,
+        detail={
+            "status": 500,
+            "message": f"모델 로딩 실패: {str(e)}",
+            "data": None
+        }
+    )
+
+# CPU를 사용하는 경우 모델을 CPU로 이동
+if device == "cpu":
+    model = model.to(device)
+
+logger.info("Model loaded successfully!")
+
+# Qdrant 설정
 QDRANT_URL = os.getenv("QDRANT_URL")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 COLLECTION_NAME = os.getenv("QDRANT_COLLECTION_NAME")
-
-# Hugging Face Inference Client 초기화
-client = InferenceClient(token=HF_API_KEY)
-llm = HuggingFaceInferenceLLM(client=client)
 
 qdrant_client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
 embedding_model = HuggingFaceEmbeddings(model_name="BAAI/bge-small-en-v1.5")
@@ -85,7 +106,7 @@ vectorstore = QdrantVectorStore(
     embedding=embedding_model
 )
 
-retriever = vectorstore.as_retriever(search_kwargs={"k": 5}) # 사용자 질문으로 부터 가장 유사한 3개 문서 검색
+retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
 
 # RAG 방식 챌린지 추천을 위한 Output Parser 정의
 rag_response_schemas = [
@@ -121,13 +142,69 @@ JSON 포맷:
 """
 )
 
-# LLMChain 체인 생성 (retriever는 app_router에서 별도 사용)
-qa_chain = LLMChain(
-    llm=llm,
-    prompt=custom_prompt
-)
+def get_llm_response(prompt: str) -> Generator[Dict[str, Any], None, None]:
+    try:
+        inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+        streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
 
-##########################################
+        generation_kwargs = dict(
+            inputs,
+            streamer=streamer,
+            max_new_tokens=1024,
+            temperature=0.7,
+            do_sample=True,
+            pad_token_id=tokenizer.eos_token_id
+        )
+        thread = threading.Thread(target=model.generate, kwargs=generation_kwargs)
+        thread.start()
+
+        # 전체 응답 누적용
+        full_response = ""
+
+        for new_text in streamer:
+            if new_text:
+                full_response += new_text
+                yield {
+                    "event": "token",
+                    "data": json.dumps({
+                        "status": 200,
+                        "message": "토큰 생성",
+                        "data": {"token": new_text}
+                    }, ensure_ascii=False)
+                }
+
+        # 서버에서 직접 파싱
+        try:
+            parsed_data = rag_parser.parse(full_response.strip())
+            yield {
+                "event": "complete",
+                "data": json.dumps({
+                    "status": 200,
+                    "message": "모든 응답 완료",
+                    "data": parsed_data
+                }, ensure_ascii=False)
+            }
+        except Exception as e:
+            logger.error(f"파싱 실패: {str(e)}")
+            yield {
+                "event": "error",
+                "data": json.dumps({
+                    "status": 500,
+                    "message": f"파싱 실패: {str(e)}",
+                    "data": None
+                }, ensure_ascii=False)
+            }
+
+    except Exception as e:
+        logger.error(f"LLM 응답 생성 실패: {str(e)}")
+        yield {
+            "event": "error",
+            "data": json.dumps({
+                "status": 500,
+                "message": f"LLM 응답 생성 실패: {str(e)}",
+                "data": None
+            }, ensure_ascii=False)
+        }
 
 # 대화 상태를 관리하기 위한 타입 정의
 class ChatState(TypedDict):
@@ -199,225 +276,6 @@ def format_sse_response(event: str, data: Dict[str, Any]) -> str:
     """SSE 응답 형식으로 변환"""
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
-def get_llm_response(prompt: str) -> Generator[Dict[str, Any], None, None]:
-    """LLM 응답을 SSE 형식으로 반환 (챌린지 단위 스트리밍)"""
-    if not HF_API_KEY:
-        yield {
-            "event": "error",
-            "data": json.dumps({
-                "status": 401,
-                "message": "Hugging Face API 키가 설정되지 않았습니다. .env 파일에 HUGGINGFACE_API_KEYMAC를 설정해주세요.",
-                "data": None
-            }, ensure_ascii=False)
-        }
-        return
-
-    headers = {
-        "Authorization": f"Bearer {HF_API_KEY}",
-        "Content-Type": "application/json; charset=utf-8"
-    }
-    
-    payload = {
-        "inputs": prompt,
-        "parameters": {
-            "max_new_tokens": 1024,
-            "temperature": 0.7,
-            "do_sample": True,
-            "stop": ["</s>", "[INST]"],
-            "return_full_text": False,
-            "top_p": 0.95,
-            "repetition_penalty": 1.1
-        },
-        "stream": True
-    }
-
-    try:
-        print(f"Sending request to API with prompt: {prompt[:200]}...")
-        response = requests.post(API_URL, headers=headers, json=payload, stream=True)
-        response.raise_for_status()
-        print(f"Response status code: {response.status_code}")
-        
-    except HTTPError as http_err:
-        status_code = http_err.response.status_code
-        try:
-            error_detail = http_err.response.json()
-            message = error_detail.get("error", str(http_err))
-            if status_code == 401:
-                message = "Hugging Face API 키가 유효하지 않습니다. API 키를 확인해주세요."
-            elif status_code == 503:
-                message = "모델이 현재 로딩 중입니다. 잠시 후 다시 시도해주세요."
-            elif status_code == 422:
-                message = "API 요청 형식이 잘못되었습니다. 프롬프트 형식을 확인해주세요."
-        except json.JSONDecodeError:
-            message = str(http_err)
-
-        yield {
-            "event": "error",
-            "data": json.dumps({
-                "status": status_code,
-                "message": f"API 호출 오류: {message}",
-                "data": None
-            }, ensure_ascii=False)
-        }
-        return
-    except Exception as e:
-        yield {
-            "event": "error",
-            "data": json.dumps({
-                "status": 500,
-                "message": f"LLM 호출 중 예상치 못한 오류 발생: {str(e)}",
-                "data": None
-            }, ensure_ascii=False)
-        }
-        return
-
-    try:
-        full_response = ""
-        json_buffer = ""
-        in_json = False
-        
-        for line in response.iter_lines(decode_unicode=True):
-            if not line:
-                continue
-                
-            try:
-                # SSE 형식에서 data: 접두사 제거
-                if line.startswith("data: "):
-                    line = line[6:]  # "data: " 제거
-                
-                data = json.loads(line)
-                
-                # 토큰 처리
-                if isinstance(data, dict) and "token" in data:
-                    token_data = data["token"]
-                    if isinstance(token_data, dict) and "text" in token_data:
-                        token_text = token_data["text"]
-                    else:
-                        continue
-                        
-                    if not token_text:
-                        continue
-                        
-                    # 한글 인코딩 처리
-                    try:
-                        # UTF-8로 디코딩 시도
-                        token_text = token_text.encode('latin1').decode('utf-8')
-                    except:
-                        try:
-                            # 다른 인코딩 시도
-                            token_text = token_text.encode('latin1').decode('cp949')
-                        except:
-                            continue
-                        
-                    full_response += token_text
-                    
-                    # 토큰 단위로 스트리밍
-                    yield {
-                        "event": "token",
-                        "data": json.dumps({
-                            "token": token_text
-                        }, ensure_ascii=False)
-                    }
-                    
-                    # JSON 내용 시작 감지
-                    if "```json" in token_text:
-                        in_json = True
-                        json_buffer = ""
-                        continue
-                        
-                    # JSON 내용이 아닌 경우 무시
-                    if not in_json:
-                        continue
-                        
-                    # JSON 내용 처리
-                    if token_text.strip():
-                        json_buffer += token_text
-                        
-                        # JSON 객체가 완성되었는지 확인
-                        if json_buffer.strip().endswith("```"):
-                            # 마지막 ``` 제거
-                            json_buffer = json_buffer.strip()[:-3]
-                            
-                            # JSON 파싱 시도
-                            try:
-                                # 한글 인코딩 처리
-                                try:
-                                    json_buffer = json_buffer.encode('latin1').decode('utf-8')
-                                except:
-                                    json_buffer = json_buffer.encode('latin1').decode('cp949')
-                                    
-                                parsed_json = json.loads(json_buffer)
-                                
-                                if "challenges" in parsed_json:
-                                    for idx, challenge in enumerate(parsed_json["challenges"]):
-                                        challenge_data = {
-                                            "index": idx + 1,
-                                            "title": challenge.get("title", ""),
-                                            "description": challenge.get("description", "")
-                                        }
-                                        yield {
-                                            "event": "challenge",
-                                            "data": json.dumps(challenge_data, ensure_ascii=False)
-                                        }
-                            except Exception as e:
-                                print(f"JSON 파싱 실패: {str(e)}")
-                                print(f"문제의 JSON: {json_buffer}")
-                            
-                            # JSON 처리 완료
-                            in_json = False
-                            json_buffer = ""
-                
-                # 전체 응답 처리
-                elif isinstance(data, dict) and "generated_text" in data and data["generated_text"]:
-                    # 전체 응답 파싱 시도
-                    try:
-                        # 한글 인코딩 처리
-                        try:
-                            full_response = full_response.encode('latin1').decode('utf-8')
-                        except:
-                            full_response = full_response.encode('latin1').decode('cp949')
-                            
-                        parsed_data = rag_parser.parse(full_response.strip())
-                        
-                        # 최종 응답이 완료되면 파싱된 데이터와 함께 완료 이벤트 전송
-                        yield {
-                            "event": "complete",
-                            "data": json.dumps({
-                                "status": 200,
-                                "message": "모든 응답 완료",
-                                "data": parsed_data
-                            }, ensure_ascii=False)
-                        }
-                    except Exception as e:
-                        print(f"파싱 실패: {str(e)}")
-                        print(f"전체 응답: {full_response}")
-                        yield {
-                            "event": "error",
-                            "data": json.dumps({
-                                "status": 500,
-                                "message": f"파싱 실패: {str(e)}",
-                                "data": None
-                            }, ensure_ascii=False)
-                        }
-                        return
-
-            except json.JSONDecodeError as e:
-                print(f"Failed to parse JSON: {line}")
-                continue
-
-    except Exception as e:
-        print(f"ERROR: get_llm_response 함수에서 예외 발생: {e}")
-        yield {
-            "event": "error",
-            "data": json.dumps({
-                "status": 500,
-                "message": f"응답 처리 중 예상치 못한 오류 발생: {str(e)}",
-                "data": None
-            }, ensure_ascii=False)
-        }
-        return
-
-# 대화 그래프 노드 정의
 def validate_query(state: ChatState) -> ChatState: # state는 챗봇의 현재 대화 상태를 담고 있는 딕셔너리
     """사용자 질문 유효성 검사"""
     if len(state["current_query"].strip()) < 5:

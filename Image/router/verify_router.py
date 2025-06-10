@@ -18,7 +18,10 @@ class ImageVerificationRequest(BaseModel):
     challengeId: int
     date: str
     challengeName: str
+<<<<<<< HEAD
     challengeInfo: str
+=======
+>>>>>>> ad84618 (Revert "Image 모델 삭제( 병합 시 혼란 예방)")
 
 # 응답 데이터 모델
 class ImageVerificationResponse(BaseModel):
