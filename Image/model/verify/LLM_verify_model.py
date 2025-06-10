@@ -57,11 +57,11 @@ class ImageVerifyModel :
 
                 # 이벤트 챌린지인 경우에만 리사이징 수행
                 if challenge_type.upper() == "GROUP" and 1 <= challenge_id <= 17:
-                    if max(pillow_image.size) > 1024:
+                    if max(pillow_image.size) > 336:
                         print("[DEBUG] 이미지 리사이징 시작")
-                        new_width = 1024
-                        new_height = int(pillow_image.height * 1024 / pillow_image.width)
-                        pillow_image = pillow_image.resize((new_width, new_height))
+                        # new_width = 1024
+                        # new_height = int(pillow_image.height * 1024 / pillow_image.width)
+                        pillow_image = pillow_image.resize((256,256))
                     pillow_image.save(temp_file.name, format="PNG")
 
                 # VertexAI용 이미지 객체 로드 
