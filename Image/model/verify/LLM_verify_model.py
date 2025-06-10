@@ -116,8 +116,8 @@ class ImageVerifyModel :
         
 
         # 이미지 열기
-        image_tensor = self.processor(images=image, return_tensors="pt").pixel_values[0].unsqueeze(0).to(self.device)
-        inputs = self.processor(prompt, return_tensors="pt").to(self.device)
+        image_tensor = self.processor(images=image, return_tensors="pt").pixel_values
+        inputs = self.processor(prompt, return_tensors="pt")
 
         # 모델 인퍼런스
         outputs = self.model.generate(
