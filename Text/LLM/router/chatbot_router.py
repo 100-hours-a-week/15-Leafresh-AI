@@ -110,7 +110,7 @@ async def select_category(
                         }
                     })
                     
-                elif event_type == "complete":
+                elif event_type == "close":
                     yield format_sse_response_for_client("close", {
                         "status": 200,
                         "message": "모든 챌린지 추천 완료",
