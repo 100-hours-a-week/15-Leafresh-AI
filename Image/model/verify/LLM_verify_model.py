@@ -36,6 +36,7 @@ class ImageVerifyModel :
         self.device = device
         self.processor = AutoProcessor.from_pretrained(model_dir)
         self.model = AutoModelForVision2Seq.from_pretrained(model_dir, torch_dtype=torch.float16, device_map="auto", local_files_only=True)
+        self.model.eval()
         self.storage_client = storage.Client()                                          
 
 
@@ -123,7 +124,7 @@ class ImageVerifyModel :
         
 
         # 이미지 열기
-        inputs = self.processor(prompt, images=image, return_tensors="pt")
+        inputs = self.processor(prompt, images=image, return_tensors="pt").to(self.device, torch.float16)
 
         print("[DEBUG] input_ids shape:", inputs["input_ids"].shape)
         print("[DEBUG] pixel_values shape:", inputs["pixel_values"].shape)
