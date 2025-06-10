@@ -1,5 +1,5 @@
 
-curl -X POST http://0.0.0.0:8000/ai/image/verification/stream \
+curl -X POST http://localhost:8000/ai/image/verification/stream \
   -H "Content-Type: application/json" \
   -d '{
     "verificationId": 110,
