@@ -250,7 +250,9 @@ jobs:
             echo "로그 확인"
             sleep 20
             cat uvicorn.log || echo "uvicorn log missing"
-            true  # <-- 이 줄로 무조건 성공 처리
+
+            echo "uvicorn 실행 환경 확인"
+            ps aux | grep uvicorn
             
       - name: Set Status
         id: set-status
