@@ -33,7 +33,7 @@ def tabulate_fixed(df: pd.DataFrame):
     return tabulate(df_fixed, headers="keys", tablefmt="pretty", showindex=False)
 
 # 테스트 반복
-for idx, case in enumerate(test_cases, 1):
+for idx, case in enumerate(test_cases[0:10], start=1):
     try:
         blob_name = extract_blob_name(case["imageUrl"])
         output = model.image_verify(
