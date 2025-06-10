@@ -32,7 +32,7 @@ class ImageVerifyModel :
         self.storage_client = storage.Client()                                          # GCS 클라이언트 
     '''
 
-    def __init__(self, model_dir="./llava_model", device="cuda"):
+    def __init__(self, model_dir="/home/ubuntu/llava_model/models--llava-hf--llava-1.5-13b-hf/snapshots/5dda2880bda009266dda7c4baff660b95ca64540", device="cuda"):
         self.device = device
         self.processor = AutoProcessor.from_pretrained(model_dir)
         self.model = AutoModelForVision2Seq.from_pretrained(model_dir, torch_dtype=torch.float16, device_map="auto").to(self.device)
@@ -128,7 +128,7 @@ class ImageVerifyModel :
 
         assistant = self.processor.decode(outputs[0], skip_special_tokens=True)
 
-        if "ASSISTANT:" in result:
+        if "ASSISTANT:" in assistant:
             result = assistant.split("ASSISTANT:")[-1].strip()
         else:
             result = assistant.strip()
