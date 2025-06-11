@@ -15,6 +15,10 @@
 </head>
 <body>
     <h1>SSE Test</h1>
+    <div>
+        <button onclick="connectBaseInfoSSE()">Connect Base Info SSE</button>
+        <button onclick="connectFreeTextSSE()">Connect Free Text SSE</button>
+    </div>
     <div id="messages"></div>
 
     <script>
@@ -24,7 +28,8 @@
             messagesDiv.textContent += message + '\n';
         }
 
-        function connectSSE() {
+        function connectBaseInfoSSE() {
+            messagesDiv.textContent = ''; // Clear previous messages
             const sessionId = 'user123';
             const location = encodeURIComponent('도시');
             const workType = encodeURIComponent('사무직');
@@ -32,32 +37,63 @@
             
             const url = `http://35.216.82.57:8000/ai/chatbot/recommendation/base-info?sessionId=${sessionId}&location=${location}&workType=${workType}&category=${category}`;
             
-            addMessage('Connecting to: ' + url);
+            addMessage('Connecting to Base Info SSE: ' + url);
             
             const eventSource = new EventSource(url);
 
             eventSource.onopen = function() {
-                addMessage('Connection opened');
+                addMessage('Base Info SSE Connection opened');
             };
 
             eventSource.onmessage = function(event) {
-                addMessage('Received: ' + event.data);
+                addMessage('Base Info SSE Received: ' + event.data);
             };
 
             eventSource.onerror = function(error) {
-                addMessage('Error: ' + JSON.stringify(error));
+                addMessage('Base Info SSE Error: ' + JSON.stringify(error));
                 eventSource.close();
             };
 
             // Close connection after 30 seconds
             setTimeout(() => {
                 eventSource.close();
-                addMessage('Connection closed after timeout');
+                addMessage('Base Info SSE Connection closed after timeout');
             }, 30000);
         }
 
-        // Start connection when page loads
-        connectSSE();
+        function connectFreeTextSSE() {
+            messagesDiv.textContent = ''; // Clear previous messages
+            const sessionId = 'user123';
+            const message = encodeURIComponent('친환경 챌린지 추천해줘');
+            
+            const url = `http://35.216.82.57:8000/ai/chatbot/recommendation/free-text?sessionId=${sessionId}&message=${message}`;
+            
+            addMessage('Connecting to Free Text SSE: ' + url);
+            
+            const eventSource = new EventSource(url);
+
+            eventSource.onopen = function() {
+                addMessage('Free Text SSE Connection opened');
+            };
+
+            eventSource.onmessage = function(event) {
+                addMessage('Free Text SSE Received: ' + event.data);
+            };
+
+            eventSource.onerror = function(error) {
+                addMessage('Free Text SSE Error: ' + JSON.stringify(error));
+                eventSource.close();
+            };
+
+            // Close connection after 30 seconds
+            setTimeout(() => {
+                eventSource.close();
+                addMessage('Free Text SSE Connection closed after timeout');
+            }, 30000);
+        }
+
+        // Start connection when page loads (optional, could be triggered by button)
+        // connectBaseInfoSSE(); 
     </script>
 </body>
 </html> 
