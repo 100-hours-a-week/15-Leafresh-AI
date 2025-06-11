@@ -68,6 +68,8 @@ try:
         torch_dtype=torch.float16
     )
     logger.info("Loading model...")
+    
+    # 메모리 최적화를 위한 설정
     model = AutoModelForCausalLM.from_pretrained(
         "mistralai/Mistral-7B-Instruct-v0.3",
         cache_dir=MODEL_PATH,
@@ -75,6 +77,9 @@ try:
         torch_dtype=torch.float16,
         low_cpu_mem_usage=True
     )
+    
+    logger.info("Model loaded successfully!")
+    
 except Exception as e:
     logger.error(f"모델 로딩 실패: {str(e)}")
     raise HTTPException(
@@ -85,12 +90,6 @@ except Exception as e:
             "data": None
         }
     )
-
-# CPU를 사용하는 경우 모델을 CPU로 이동
-if device == "cpu":
-    model = model.to(device)
-
-logger.info("Model loaded successfully!")
 
 # Qdrant 설정
 QDRANT_URL = os.getenv("QDRANT_URL")
@@ -143,8 +142,11 @@ JSON 포맷:
 )
 
 def get_llm_response(prompt: str) -> Generator[Dict[str, Any], None, None]:
+    """LLM 응답을 SSE 형식으로 반환 (서버에서 전체 파싱 후 전달)"""
+    logger.info(f"LLM 응답 생성 시작 - 프롬프트 길이: {len(prompt)}")
     try:
         inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+        logger.info(f"토크나이저 입력 준비 완료. 입력 토큰 수: {inputs.input_ids.shape[1]}")
         streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
 
         generation_kwargs = dict(
@@ -155,55 +157,62 @@ def get_llm_response(prompt: str) -> Generator[Dict[str, Any], None, None]:
             do_sample=True,
             pad_token_id=tokenizer.eos_token_id
         )
+        logger.info("스레드 시작 및 모델 생성 시작.")
         thread = threading.Thread(target=model.generate, kwargs=generation_kwargs)
         thread.start()
 
         # 전체 응답 누적용
         full_response = ""
+        logger.info("스트리밍 응답 대기 중...")
 
         for new_text in streamer:
             if new_text:
                 full_response += new_text
+                logger.info(f"토큰 수신: {new_text[:20]}...") # 처음 20자만 로깅하여 너무 길어지지 않게 함
                 yield {
                     "event": "token",
-                    "data": json.dumps({
+                    "data": {
                         "status": 200,
                         "message": "토큰 생성",
                         "data": {"token": new_text}
-                    }, ensure_ascii=False)
+                    }
                 }
 
         # 서버에서 직접 파싱
+        logger.info("스트리밍 완료. 전체 응답 파싱 시작.")
         try:
             parsed_data = rag_parser.parse(full_response.strip())
+            logger.info("파싱 성공. 응답 데이터 구조:")
+            logger.info(f"- recommend: {parsed_data.get('recommend', '')[:50]}...")
+            logger.info(f"- challenges 개수: {len(parsed_data.get('challenges', []))}")
             yield {
                 "event": "complete",
-                "data": json.dumps({
+                "data": {
                     "status": 200,
                     "message": "모든 응답 완료",
                     "data": parsed_data
-                }, ensure_ascii=False)
+                }
             }
         except Exception as e:
             logger.error(f"파싱 실패: {str(e)}")
             yield {
                 "event": "error",
-                "data": json.dumps({
+                "data": {
                     "status": 500,
                     "message": f"파싱 실패: {str(e)}",
                     "data": None
-                }, ensure_ascii=False)
+                }
             }
 
     except Exception as e:
         logger.error(f"LLM 응답 생성 실패: {str(e)}")
         yield {
             "event": "error",
-            "data": json.dumps({
+            "data": {
                 "status": 500,
                 "message": f"LLM 응답 생성 실패: {str(e)}",
                 "data": None
-            }, ensure_ascii=False)
+            }
         }
 
 # 대화 상태를 관리하기 위한 타입 정의

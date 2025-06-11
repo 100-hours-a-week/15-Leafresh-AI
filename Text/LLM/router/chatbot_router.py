@@ -235,30 +235,57 @@ async def freetext_rag(
         )
 
         # LLM 응답 스트리밍
-        for data_payload in get_free_text_llm_response(prompt):
-            event_type = data_payload.get("event")
-            data_from_llm_model = data_payload.get("data")
+        try:
+            full_response_text = ""
+            for data_payload in get_free_text_llm_response(prompt):
+                event_type = data_payload.get("event")
+                data_from_llm_model = data_payload.get("data")
 
-            if event_type == "token":
-                yield {
-                    "event": "token",
-                    "data": data_from_llm_model
+                if event_type == "token":
+                    # LLM_chatbot_free_text_model에서 이미 딕셔너리로 받음
+                    yield {
+                        "event": "token",
+                        "data": json.dumps(data_from_llm_model, ensure_ascii=False)
+                    }
+                    if "data" in data_from_llm_model and "token" in data_from_llm_model["data"]:
+                        full_response_text += data_from_llm_model["data"]["token"]
+                        
+                elif event_type == "complete":
+                    # LLM_chatbot_free_text_model에서 이미 딕셔너리로 받음
+                    # 대화 기록 업데이트 (챌린지 추천 결과 전체를 저장)
+                    if sessionId in conversation_states:
+                        conversation_states[sessionId]["messages"].append(f"AI: {full_response_text}")
+
+                    yield {
+                        "event": "complete",
+                        "data": json.dumps(data_from_llm_model, ensure_ascii=False)
+                    }
+                    yield {
+                        "event": "close",
+                        "data": json.dumps({
+                            "status": 200,
+                            "message": "모든 응답 완료",
+                            "data": data_from_llm_model["data"] # complete 이벤트의 data를 그대로 사용
+                        }, ensure_ascii=False)
+                    }
+                    
+                elif event_type == "error":
+                    yield {
+                        "event": "error",
+                        "data": json.dumps(data_from_llm_model, ensure_ascii=False)
+                    }
+                
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "status": 500,
+                    "message": f"서버 내부 오류로 추천에 실패했습니다: {str(e)}",
+                    "data": None
                 }
-            elif event_type == "challenge": # Assuming free_text also yields challenge events
-                yield {
-                    "event": "challenge",
-                    "data": data_from_llm_model
-                }
-            elif event_type == "close":
-                yield {
-                    "event": "close",
-                    "data": data_from_llm_model
-                }
-            elif event_type == "error":
-                yield {
-                    "event": "error",
-                    "data": data_from_llm_model
-                }
+            )
 
     return EventSourceResponse(event_generator())
 
