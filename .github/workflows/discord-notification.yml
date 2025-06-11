@@ -1,0 +1,106 @@
+name: PR Discord Notification
+
+on:
+  pull_request:
+    types: [opened, reopened]
+
+jobs:
+  notify-discord:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get Pull Request details and commits via GitHub API
+        id: pr_details_api
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // core 객체를 통해 환경 변수를 설정합니다.
+            // context, github, core, io, exec, hash, etc. 객체들이 github-script에 제공됩니다.
+
+            const prNumber = context.issue.number;
+            const repoOwner = context.repo.owner;
+            const repoName = context.repo.repo;
+
+            // GitHub API를 사용하여 PR의 커밋 목록을 가져옵니다.
+            const { data: commits } = await github.rest.pulls.listCommits({
+              owner: repoOwner,
+              repo: repoName,
+              pull_number: prNumber,
+              per_page: 7, // 최대 7개 커밋만 가져오도록 설정
+            });
+
+            let formattedCommitsList = "*커밋 정보 없음*";
+            if (commits && commits.length > 0) {
+              formattedCommitsList = commits.map(commit => {
+                const sha = commit.sha.substring(0, 7); // 짧은 SHA
+                const message = commit.commit.message.split('\n')[0].trim(); // 첫 줄만 가져오기
+                const commitUrl = commit.html_url; // 커밋 HTML URL
+                return `* [\`${sha}\`](${commitUrl}) ${message}`;
+              }).join('\n');
+            }
+
+            // core.exportVariable을 사용하여 환경 변수를 설정합니다.
+            // JSON.stringify는 문자열 자체에 따옴표가 필요한 경우에만 사용 (예: 객체나 배열을 문자열로 저장할 때)
+            // 여기서는 이미 안전하게 문자열로 되어 있으므로 필요하지 않습니다.
+            core.exportVariable('PR_NUMBER', prNumber);
+            core.exportVariable('PR_TITLE', context.payload.pull_request.title);
+            core.exportVariable('PR_URL', context.payload.pull_request.html_url);
+            core.exportVariable('PR_AUTHOR', context.payload.pull_request.user.login);
+            core.exportVariable('COMMITS_FORMATTED_LIST', formattedCommitsList);
+
+
+      - name: Send Discord Notification
+        uses: actions/github-script@v7
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        with:
+          script: |
+            const webhookUrl = process.env.DISCORD_WEBHOOK;
+            // process.env를 통해 GITHUB_ENV에서 설정된 변수들을 직접 사용
+            const prNumber = process.env.PR_NUMBER;
+            const prTitle = process.env.PR_TITLE;
+            const prUrl = process.env.PR_URL;
+            const prAuthor = process.env.PR_AUTHOR;
+            const commitsList = process.env.COMMITS_FORMATTED_LIST;
+
+            const payload = {
+              username: "GitHub PR Notifier",
+              avatar_url: "https://avatars.githubusercontent.com/u/9919?s=200&v=4",
+              embeds: [
+                {
+                  title: `PR 정보: #${prNumber} - ${prTitle}`,
+                  url: prUrl,
+                  color: 5814783,
+                  author: {
+                    name: `작성자: ${prAuthor}`,
+                    url: `https://github.com/${prAuthor}`,
+                    icon_url: `https://github.com/${prAuthor}.png?size=32`
+                  },
+                  fields: [
+                    {
+                      name: "커밋 내용 (최근 7개)",
+                      value: commitsList,
+                      inline: true
+                    }
+                  ],
+                  footer: {
+                    text: "GitHub Actions",
+                    icon_url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
+                  },
+                  timestamp: new Date().toISOString()
+                }
+              ]
+            };
+
+            const response = await fetch(webhookUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify(payload),
+            });
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              throw new Error(`Failed to send Discord notification: ${response.status} ${errorText}`);
+            }
+            console.log('Discord notification sent successfully!');
