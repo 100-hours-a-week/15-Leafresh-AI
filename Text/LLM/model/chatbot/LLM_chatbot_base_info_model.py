@@ -107,8 +107,8 @@ logger.info("Model loaded successfully!")
 
 # base-info_response_schemas 정의
 base_response_schemas = [
-    ResponseSchema(name="recommend", description="추천 텍스트를 한 문장으로 출력해줘.(예: '이런 챌린지를 추천합니다.')"),
-    ResponseSchema(name="challenges", description="추천 챌린지 리스트, 각 항목은 title, description 포함, description은 한 문장으로 요약해주세요.")
+    ResponseSchema(name="recommend", description="추천 텍스트를 한 문장으로 출력해줘."),
+    ResponseSchema(name="challenges", description="추천 챌린지 리스트, 각 항목은 title, description 포함, title은 description 요약문으로 10자 이내로 작성")
 ]
 
 # base-info_output_parser 정의 
@@ -125,6 +125,7 @@ base_prompt = PromptTemplate(
 주의사항:
 1. 모든 속성 이름은 반드시 큰따옴표(")로 둘러싸야 합니다.
 2. 모든 문자열 값도 큰따옴표(")로 둘러싸야 합니다.
+3. recommend 필드에는 {{category}} 관련 추천 문구를 포함해야 합니다.
 
 JSON 포맷:
 {escaped_format}
