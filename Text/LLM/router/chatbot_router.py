@@ -14,10 +14,6 @@ import asyncio
 
 router = APIRouter()
 
-def format_sse_response_for_client(event: str, data: Dict[str, Any]) -> str:
-    """클라이언트에 보낼 최종 SSE 응답 형식으로 변환 (data는 Python 딕셔너리)"""
-    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
-
 # 비-RAG 방식 챌린지 추천 (SSE)
 @router.get("/ai/chatbot/recommendation/base-info")
 async def select_category(
@@ -89,36 +85,53 @@ async def select_category(
             }
 
         try:
-            # 동기 제너레이터를 직접 사용
-            full_response = ""
-            for data_payload in get_base_info_llm_response(prompt):
-                event_type = data_payload.get("event_type", "message")
+            # 전체 응답 텍스트를 누적하기 위한 변수 (base_info에서는 LLM_chatbot_base_info_model에서 파싱하므로 제거)
+            # full_response = ""
+            eng_label, kor_label = label_mapping[category]
+            
+            for data_payload in get_base_info_llm_response(prompt, category=category):
+                event_type = data_payload.get("event")
+                data_from_llm_model = data_payload.get("data")
                 
                 if event_type == "challenge":
-                    challenge = data_payload.get("data", {})
-                    eng_label, kor_label = label_mapping[category]
-                    
-                    yield format_sse_response_for_client("challenge", {
-                        "status": 200,
-                        "message": f"{challenge.get('index', '')} 번째 챌린지 추천",
-                        "data": {
-                            "challenges": {
-                                "title": challenge.get("title", ""),
-                                "description": challenge.get("description", ""),
-                                "category": eng_label,
-                                "label": kor_label
-                            }
-                        }
-                    })
+                    # LLM_chatbot_base_info_model에서 이미 json.dumps 처리된 문자열을 받음
+                    yield {
+                        "event": "challenge",
+                        "data": data_from_llm_model
+                    }
                     
                 elif event_type == "close":
                     try:
-                        parsed_data = base_parser.parse(full_response.strip())
-                        yield format_sse_response_for_client("close", {
-                            "status": 200,
-                            "message": "모든 챌린지 추천 완료",
-                            "data": parsed_data
-                        })
+                        # LLM 모델에서 이미 파싱된 데이터를 받음 (json.dumps 처리된 문자열)
+                        # 여기서는 문자열을 다시 파싱해서 딕셔너리로 만듦
+                        parsed_data = json.loads(data_from_llm_model) if isinstance(data_from_llm_model, str) else data_from_llm_model
+                        
+                        # 파싱된 데이터가 유효한지 확인
+                        if not isinstance(parsed_data, dict):
+                            raise ValueError("파싱된 데이터가 딕셔너리가 아닙니다.")
+                            
+                        # 'data' 키 안에 실제 데이터가 있는지 확인
+                        if "data" not in parsed_data or not isinstance(parsed_data["data"], dict):
+                            raise ValueError("파싱된 데이터에 유효한 'data' 키가 없습니다.")
+                            
+                        final_data = parsed_data["data"]
+
+                        if "challenges" not in final_data:
+                            raise ValueError("파싱된 데이터에 'challenges' 키가 없습니다.")
+                            
+                        # LLM_chatbot_base_info_model에서 이미 카테고리/라벨이 추가되므로 여기서는 추가하지 않음
+                        # for challenge in final_data["challenges"]:
+                        #     challenge["category"] = eng_label
+                        #     challenge["label"] = kor_label
+                        
+                        yield {
+                            "event": "close",
+                            "data": json.dumps({ # sse_starlette가 다시 한 번 감싸지 않도록 json.dumps 사용
+                                "status": 200,
+                                "message": "모든 챌린지 추천 완료",
+                                "data": final_data
+                            }, ensure_ascii=False)
+                        }
                     except Exception as e:
                         raise HTTPException(
                             status_code=500,
@@ -130,14 +143,10 @@ async def select_category(
                         )
                     
                 elif event_type == "error":
-                    raise HTTPException(
-                        status_code=500,
-                        detail={
-                            "status": 500,
-                            "message": data_payload.get("message", "알 수 없는 오류가 발생했습니다."),
-                            "data": None
-                        }
-                    )
+                    yield {
+                        "event": "error",
+                        "data": data_from_llm_model
+                    }
                 
         except HTTPException:
             raise
@@ -204,11 +213,14 @@ async def freetext_rag(
         
         # fallback 조건 검사
         if not is_category_request and (not is_env_related or contains_bad_words):
-            yield format_sse_response_for_client("fallback", {
-                "status": 200,
-                "message": "저는 친환경 챌린지를 추천해드리는 Leafresh 챗봇이에요! 환경 관련 질문을 해주시면 더 잘 도와드릴 수 있어요.",
-                "data": None
-            })
+            yield {
+                "event": "fallback",
+                "data": json.dumps({
+                    "status": 200,
+                    "message": "저는 친환경 챌린지를 추천해드리는 Leafresh 챗봇이에요! 환경 관련 질문을 해주시면 더 잘 도와드릴 수 있어요.",
+                    "data": None
+                }, ensure_ascii=False)
+            }
             return # fallback 메시지 전송 후 종료
 
         # LLM 호출을 위한 프롬프트 구성
@@ -222,121 +234,31 @@ async def freetext_rag(
             category=current_category
         )
 
-        full_response_text = ""
-        try:
-            # 동기 제너레이터를 직접 사용
-            for data_payload in get_free_text_llm_response(prompt):
-                event_type = data_payload.get("event_type", "message")
-                
-                if event_type == "token":
-                    token = data_payload.get("data", {}).get("token", "")
-                    full_response_text += token
-                    # 각 토큰을 즉시 yield
-                    yield format_sse_response_for_client("token", {
-                        "status": 200,
-                        "message": "토큰 생성",
-                        "data": {
-                            "token": token
-                        }
-                    })
-                    
-                elif event_type == "error":
-                    raise HTTPException(
-                        status_code=500,
-                        detail={
-                            "status": 500,
-                            "message": data_payload.get("message", "알 수 없는 오류가 발생했습니다."),
-                            "data": None
-                        }
-                    )
-                
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(
-                status_code=500,
-                detail={
-                    "status": 500,
-                    "message": f"LLM 응답 스트리밍 중 오류 발생: {str(e)}",
-                    "data": None
+        # LLM 응답 스트리밍
+        for data_payload in get_free_text_llm_response(prompt):
+            event_type = data_payload.get("event")
+            data_from_llm_model = data_payload.get("data")
+
+            if event_type == "token":
+                yield {
+                    "event": "token",
+                    "data": data_from_llm_model
                 }
-            )
-
-        # 전체 응답 텍스트를 JSON으로 파싱하고 챌린지 이벤트 생성
-        try:
-            json_match = re.search(r'```json\s*(\{.*\})\s*```', full_response_text, re.DOTALL)
-            if json_match:
-                json_string = json_match.group(1)
-            else:
-                json_string = full_response_text
-                
-            parsed_response = json.loads(json_string)
-
-            if "challenges" in parsed_response and isinstance(parsed_response["challenges"], list):
-                # 대화 기록 업데이트 (성공적인 LLM 응답만 기록)
-                conversation_states[sessionId]["messages"].append(f"User: {message}")
-                conversation_states[sessionId]["messages"].append(f"Assistant: {json.dumps(parsed_response, ensure_ascii=False)}")
-                if len(conversation_states[sessionId]["messages"]) > 10:
-                    conversation_states[sessionId]["messages"] = conversation_states[sessionId]["messages"][-10:]
-
-                # 각 챌린지를 개별 'challenge' 이벤트로 전송
-                for idx, challenge in enumerate(parsed_response["challenges"]):
-                    message_text = ""
-                    if idx == 0: message_text = "첫 번째 챌린지 추천"
-                    elif idx == 1: message_text = "두 번째 챌린지 추천"
-                    elif idx == 2: message_text = "세 번째 챌린지 추천"
-                    else: message_text = f"{idx+1} 번째 챌린지 추천"
-
-                    # 카테고리 정보는 세션 상태에서 가져오거나 기본값 사용
-                    challenge_category = conversation_states[sessionId].get("category", "제로웨이스트")
-                    eng_label, kor_label = label_mapping.get(challenge_category, ("UNKNOWN", "알 수 없음"))
-
-                    yield format_sse_response_for_client("challenge", {
-                        "status": 200,
-                        "message": message_text,
-                        "data": {
-                            "challenges": {
-                                "title": challenge.get("title", "제목 없음"),
-                                "description": challenge.get("description", "설명 없음"),
-                                "category": eng_label,
-                                "label": kor_label
-                            }
-                        }
-                    })
-                # 모든 챌린지 전송 후 'close' 이벤트 전송
-                yield format_sse_response_for_client("close", {
-                    "status": 200,
-                    "message": "모든 챌린지 추천 완료",
-                    "data": parsed_response
-                })
-            else:
-                raise HTTPException(
-                    status_code=500,
-                    detail={
-                        "status": 500,
-                        "message": "LLM 응답에서 챌린지 정보를 파싱할 수 없습니다. 응답 형식 오류.",
-                        "data": None
-                    }
-                )
-
-        except json.JSONDecodeError as jde:
-            raise HTTPException(
-                status_code=500,
-                detail={
-                    "status": 500,
-                    "message": f"LLM 응답 JSON 파싱 오류: {str(jde)}. 원본 응답: {full_response_text[:200]}...",
-                    "data": None
+            elif event_type == "challenge": # Assuming free_text also yields challenge events
+                yield {
+                    "event": "challenge",
+                    "data": data_from_llm_model
                 }
-            )
-        except Exception as e:
-            raise HTTPException(
-                status_code=500,
-                detail={
-                    "status": 500,
-                    "message": f"응답 처리 중 예상치 못한 오류 발생: {str(e)}",
-                    "data": None
+            elif event_type == "close":
+                yield {
+                    "event": "close",
+                    "data": data_from_llm_model
                 }
-            )
+            elif event_type == "error":
+                yield {
+                    "event": "error",
+                    "data": data_from_llm_model
+                }
 
     return EventSourceResponse(event_generator())
 

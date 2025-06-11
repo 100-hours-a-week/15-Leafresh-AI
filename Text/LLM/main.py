@@ -19,10 +19,25 @@ from Text.LLM.router.feedback_router import router as feedback_router
 from Text.LLM.router.feedback_router import feedback_exception_handler
 from Text.LLM.router.feedback_router import feedback_http_exception_handler
 
+from fastapi.middleware.cors import CORSMiddleware
+
 load_dotenv()
 
 # app 초기화
 app = FastAPI()
+
+# CORS 미들웨어 추가
+origins = [
+    "*"
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # router 등록
 app.include_router(censorship_router)

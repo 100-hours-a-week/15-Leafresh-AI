@@ -18,6 +18,7 @@ import threading
 import logging
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
+from huggingface_hub import login
 
 # 로깅 설정
 logging.basicConfig(
@@ -29,6 +30,17 @@ logger = logging.getLogger(__name__)
 # 환경 변수 로드
 load_dotenv()
 
+# Hugging Face 로그인
+hf_token = os.getenv("HUGGINGFACE_API_KEYMAC")
+if hf_token:
+    try:
+        login(token=hf_token)
+        logger.info("Hugging Face Hub에 성공적으로 로그인했습니다.")
+    except Exception as e:
+        logger.error(f"Hugging Face Hub 로그인 실패: {e}")
+else:
+    logger.warning("HUGGINGFACE_API_KEYMAC 환경 변수를 찾을 수 없습니다. Hugging Face 로그인 건너뜜.")
+
 # 프로젝트 루트 경로 설정
 current_file = os.path.abspath(__file__)
 logger.info(f"Current file: {current_file}")
@@ -37,7 +49,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
 logger.info(f"Project root: {project_root}")
 
 # 모델 경로 설정
-MODEL_PATH = os.path.join(project_root, "mistral")
+MODEL_PATH = os.path.join(project_root, "mistral", "models--mistralai--Mistral-7B-Instruct-v0.3")
 logger.info(f"Model path: {MODEL_PATH}")
 
 # 모델 경로 확인
@@ -64,7 +76,8 @@ try:
     tokenizer = AutoTokenizer.from_pretrained(
         "mistralai/Mistral-7B-Instruct-v0.3",
         cache_dir=MODEL_PATH,
-        torch_dtype=torch.float16
+        torch_dtype=torch.float16,
+        token=hf_token
     )
     logger.info("Loading model...")
     model = AutoModelForCausalLM.from_pretrained(
@@ -72,7 +85,8 @@ try:
         cache_dir=MODEL_PATH,
         device_map="auto",
         torch_dtype=torch.float16,
-        low_cpu_mem_usage=True
+        low_cpu_mem_usage=True,
+        token=hf_token
     )
 except Exception as e:
     logger.error(f"모델 로딩 실패: {str(e)}")
@@ -125,10 +139,12 @@ def format_sse_response(event: str, data: Dict[str, Any]) -> Dict[str, Any]:
         "data": json.dumps(data, ensure_ascii=False)
     }
 
-def get_llm_response(prompt: str) -> Generator[str, None, None]:
+def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], None, None]:
     """LLM 응답을 SSE 형식으로 반환 (서버에서 전체 파싱 후 전달)"""
+    logger.info(f"LLM 응답 생성 시작 - 프롬프트 길이: {len(prompt)}")
     try:
         inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+        logger.info(f"토크나이저 입력 준비 완료. 입력 토큰 수: {inputs.input_ids.shape[1]}")
         streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
 
         generation_kwargs = dict(
@@ -139,25 +155,68 @@ def get_llm_response(prompt: str) -> Generator[str, None, None]:
             do_sample=True,
             pad_token_id=tokenizer.eos_token_id
         )
+        logger.info("스레드 시작 및 모델 생성 시작.")
         thread = threading.Thread(target=model.generate, kwargs=generation_kwargs)
         thread.start()
 
         # 전체 응답 누적용
         full_response = ""
+        logger.info("스트리밍 응답 대기 중...")
 
         for new_text in streamer:
             if new_text:
                 full_response += new_text
-                yield format_sse_response("challenge", {
-                    "status": 200,
-                    "message": "토큰 생성",
-                    "data": {"token": new_text}
-                })
+                logger.info(f"토큰 수신: {new_text[:20]}...") # 처음 20자만 로깅하여 너무 길어지지 않게 함
+                yield {
+                    "event": "challenge",
+                    "data": json.dumps({
+                        "status": 200,
+                        "message": "토큰 생성",
+                        "data": {"token": new_text}
+                    }, ensure_ascii=False)
+                }
 
+        logger.info("스트리밍 완료. 전체 응답 파싱 시작.")
         # 서버에서 직접 파싱
         try:
-            parsed_data = base_parser.parse(full_response.strip())
+            # 마크다운 코드 블록 제거
+            json_match = re.search(r"```json\n([\s\S]*?)\n```", full_response.strip())
+            if json_match:
+                json_string_to_parse = json_match.group(1).strip()
+            else:
+                json_string_to_parse = full_response.strip()
+
+            # JSON 문자열 클리닝: 비표준 따옴표 및 불필요한 문자 제거 시도
+            json_string_to_parse = json_string_to_parse.replace("“", '"').replace("”", '"')
+            json_string_to_parse = re.sub(r'\s*\)\s*,', ',', json_string_to_parse) # 잘못된 괄호 뒤 콤마 제거
+            
+            # JSON 블록 뒤에 붙는 불필요한 텍스트 제거 (최대한 JSON만 남기도록)
+            # 마지막 } 괄호 뒤의 모든 것을 제거
+            last_brace_index = json_string_to_parse.rfind('}')
+            if last_brace_index != -1:
+                json_string_to_parse = json_string_to_parse[:last_brace_index + 1]
+
+            logger.info(f"파싱 전 JSON 문자열 (클린징 후): {json_string_to_parse[:500]}...") # 너무 길어지지 않게 처음 500자만 로깅
+
+            # Langchain 파서를 사용하기 전에 json.loads로 먼저 파싱 시도
+            # 이렇게 하면 더 일반적인 JSON 오류를 잡을 수 있습니다.
+            parsed_data_temp = json.loads(json_string_to_parse)
+            
+            # Langchain 파서로 최종 파싱 (필요하다면)
+            parsed_data = base_parser.parse(json.dumps(parsed_data_temp))
+
+            # ADDED: 파싱된 데이터의 각 챌린지에 카테고리 정보 추가
+            eng_label, kor_label = label_mapping[category] # category는 외부에서 주입된 변수
+            if isinstance(parsed_data, dict) and "challenges" in parsed_data:
+                for challenge in parsed_data["challenges"]:
+                    challenge["category"] = eng_label
+                    challenge["label"] = kor_label
+
+            logger.info("파싱 성공.")
         except Exception as e:
+            logger.error(f"파싱 실패: {str(e)}")
+            logger.error(f"문제가 된 전체 응답 (클린징 전): {full_response}")
+            logger.error(f"문제가 된 JSON 문자열 (클린징 후): {json_string_to_parse}")
             yield format_sse_response("error", {
                     "status": 500,
                     "message": f"파싱 실패: {str(e)}",
@@ -166,15 +225,23 @@ def get_llm_response(prompt: str) -> Generator[str, None, None]:
             return
 
         # 종료 이벤트
-        yield format_sse_response("close", {
-            "status": 200,
-            "message": "모든 응답 완료",
-            "data": parsed_data
-        })
+        logger.info("모든 응답 완료 및 종료 이벤트 전송.")
+        yield {
+            "event": "close",
+            "data": json.dumps({
+                "status": 200,
+                "message": "모든 응답 완료",
+                "data": parsed_data
+            }, ensure_ascii=False)
+        }
 
     except Exception as e:
-        yield format_sse_response("error", {
+        logger.error(f"예외 발생: {str(e)}")
+        yield {
+            "event": "error",
+            "data": json.dumps({
                 "status": 500,
-            "message": f"예외 발생: {str(e)}",
+                "message": f"예외 발생: {str(e)}",
                 "data": None
-        })
+            }, ensure_ascii=False)
+        }
