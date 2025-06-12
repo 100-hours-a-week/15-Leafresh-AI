@@ -110,9 +110,9 @@ class CensorshipModel :
             print("[result]\n", result)
             print("[answer]", answer)
 
-            if answer.startswith("yes"):
+            if answer.startswith("yes."):
                 return True, "챌린지 생성이 가능합니다."
-            elif answer.startswith("no"):
+            elif answer.startswith("no."):
                 
                 for c in existing:
                     if not (c.startDate and c.endDate):
