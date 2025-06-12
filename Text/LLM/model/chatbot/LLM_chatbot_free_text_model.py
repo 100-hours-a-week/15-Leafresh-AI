@@ -75,7 +75,8 @@ try:
         cache_dir=MODEL_PATH,
         device_map="auto",
         torch_dtype=torch.float16,
-        low_cpu_mem_usage=True
+        low_cpu_mem_usage=True,
+        trust_remote_code=True
     )
     
     logger.info("Model loaded successfully!")

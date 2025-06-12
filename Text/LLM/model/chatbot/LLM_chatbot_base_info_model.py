@@ -49,7 +49,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
 logger.info(f"Project root: {project_root}")
 
 # 모델 경로 설정
-MODEL_PATH = os.path.join(project_root, "mistral", "models--mistralai--Mistral-7B-Instruct-v0.3")
+MODEL_PATH = os.path.join(project_root, "mistral")
 logger.info(f"Model path: {MODEL_PATH}")
 
 # 모델 경로 확인
@@ -86,6 +86,7 @@ try:
         device_map="auto",
         torch_dtype=torch.float16,
         low_cpu_mem_usage=True,
+        trust_remote_code=True,
         token=hf_token
     )
 except Exception as e:
@@ -188,7 +189,7 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                 json_string_to_parse = full_response.strip()
 
             # JSON 문자열 클리닝: 비표준 따옴표 및 불필요한 문자 제거 시도
-            json_string_to_parse = json_string_to_parse.replace("“", '"').replace("”", '"')
+            json_string_to_parse = json_string_to_parse.replace(""", '"').replace(""", '"')
             json_string_to_parse = re.sub(r'\s*\)\s*,', ',', json_string_to_parse) # 잘못된 괄호 뒤 콤마 제거
             
             # JSON 블록 뒤에 붙는 불필요한 텍스트 제거 (최대한 JSON만 남기도록)
