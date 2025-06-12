@@ -208,12 +208,11 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
             parsed_data = base_parser.parse(json.dumps(parsed_data_temp))
 
             # ADDED: 파싱된 데이터의 각 챌린지에 카테고리 정보 추가
-            eng_label, kor_label = label_mapping[category] # category는 외부에서 주입된 변수
-            logger.info(f"Adding category info - eng: {eng_label}, kor: {kor_label}")
+            eng_label = label_mapping[category] # category는 외부에서 주입된 변수
+            logger.info(f"Adding category info - eng: {eng_label}")
             if isinstance(parsed_data, dict) and "challenges" in parsed_data:
                 for challenge in parsed_data["challenges"]:
                     challenge["category"] = eng_label
-                    challenge["label"] = kor_label
                     logger.info(f"Added category info to challenge: {challenge['title']}")
 
             logger.info("파싱 성공.")

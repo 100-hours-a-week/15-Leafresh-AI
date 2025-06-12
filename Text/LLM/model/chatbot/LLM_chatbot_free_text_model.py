@@ -334,7 +334,8 @@ def generate_response(state: ChatState) -> ChatState:
         category = state["category"]
         if category not in label_mapping:
             raise ValueError(f"잘못된 카테고리 값: {category}")
-        eng_label, kor_label = label_mapping[category]
+        eng_label = label_mapping[category]
+        logger.info(f"Adding category info - eng: {eng_label}")
         
         # Hugging Face API로 응답 생성
         prompt = custom_prompt.format(
@@ -369,14 +370,13 @@ def generate_response(state: ChatState) -> ChatState:
                 raise ValueError("challenges는 리스트 형태여야 합니다.")
             
             # 현재 카테고리 정보로 챌린지 데이터 업데이트
-            logger.info(f"Adding category info - eng: {eng_label}, kor: {kor_label}")
+            logger.info(f"Adding category info - eng: {eng_label}")
             for challenge in json.loads(response)["challenges"]:
                 challenge["category"] = eng_label
-                challenge["label"] = kor_label
                 logger.info(f"Added category info to challenge: {challenge['title']}")
             
             state["response"] = json.dumps(json.loads(response), ensure_ascii=False)
-            print(f"Final response with category: {category}, eng: {eng_label}, kor: {kor_label}")
+            print(f"Final response with category: {category}, eng: {eng_label}")
             
         else:
             print(f"응답 검증 오류: {state['error']}")
