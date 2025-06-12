@@ -41,6 +41,7 @@ class CensorshipModel :
             do_sample=True
         )
         result = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+        print("[Model Output]", result)
         return result.strip()
 
     def validate(self, challenge_name: str, start_date: str, end_date: str, existing: List[dict]):
@@ -105,6 +106,7 @@ class CensorshipModel :
             #     }
             # )
             answer = result.strip().lower()
+            print("[answer]", answer)
 
             if answer.startswith("yes"):
                 return True, "챌린지 생성이 가능합니다."
