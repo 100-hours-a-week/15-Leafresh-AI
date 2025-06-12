@@ -21,9 +21,9 @@ class CensorshipModel :
         self.model = GenerativeModel("gemini-2.0-flash")
     '''
 
-    def __init__(self, model_path="/home/ubuntu/mistral"):
+    def __init__(self, model_path="/home/ubuntu/mistral/models--mistralai--Mistral-7B-Instruct-v0.3"):
         load_dotenv()
-        self.tokenizer = AutoTokenizer.from_pretrained(model_path)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=False)
         self.model = AutoModelForCausalLM.from_pretrained(
             model_path,
             torch_dtype=torch.float16,
