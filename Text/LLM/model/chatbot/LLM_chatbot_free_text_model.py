@@ -38,7 +38,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
 logger.info(f"Project root: {project_root}")
 
 # 모델 경로 설정
-MODEL_PATH = os.path.join(project_root, "mistral")
+MODEL_PATH = "/home/ubuntu/mistral"
 logger.info(f"Model path: {MODEL_PATH}")
 
 # 모델 경로 확인
