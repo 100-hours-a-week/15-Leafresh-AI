@@ -94,7 +94,7 @@ class CensorshipModel :
         )
 
         try:
-            answer = self.generate_response(prompt).lower()
+            result = self.generate_response(prompt)
             # result = self.model.generate_content(
             #     prompt,
             #     generation_config={
@@ -104,7 +104,7 @@ class CensorshipModel :
             #         "max_output_tokens": 512
             #     }
             # )
-            # answer = result.text.strip().lower()
+            answer = result.strip().lower()
 
             if answer.startswith("yes"):
                 return True, "챌린지 생성이 가능합니다."
