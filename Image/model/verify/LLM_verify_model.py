@@ -42,32 +42,26 @@ class ImageVerifyModel :
 
     def image_verify(self, bucket_name: str, blob_name: str, challenge_type: str, challenge_id: int, challenge_name: str, challenge_info: str) -> str :
         try:
-            print("[DEBUG] image_verify 진입")
             bucket = self.storage_client.bucket(bucket_name)                            # 이미지 업로드 
-            blob = bucket.blob(blob_name)  
-            print("[DEBUG] GCS bucket, blob 가져옴")                               
+            blob = bucket.blob(blob_name)                            
        
             with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as temp_file:
                 blob.download_to_filename(temp_file.name) 
-                print("[DEBUG] 이미지 다운로드 완료")
 
                 # 이미지 열기
                 pillow_image = PILImage.open(temp_file.name).convert("RGB")
-                print("[DEBUG] 이미지 열기 완료")
 
                 # 이벤트 챌린지인 경우에만 리사이징 수행
                 if challenge_type.upper() == "GROUP" and 1 <= challenge_id <= 17:
-                    if max(pillow_image.size) > 336:
-                        print("[DEBUG] 이미지 리사이징 시작")
-                        # new_width = 1024
-                        # new_height = int(pillow_image.height * 1024 / pillow_image.width)
-                        pillow_image = pillow_image.resize((256,256))
+                    if max(pillow_image.size) > 1024:
+                        new_width = 1024
+                        new_height = int(pillow_image.height * 1024 / pillow_image.width)
+                        pillow_image = pillow_image.resize((new_width, new_height))
                     pillow_image.save(temp_file.name, format="PNG")
 
                 # VertexAI용 이미지 객체 로드 
                 # image = VertexImage.load_from_file(temp_file.name)
 
-            print("[DEBUG] response 호출 전")
             return self.response(pillow_image, challenge_type, challenge_id, challenge_name, challenge_info)
 
         except Exception as e:
@@ -88,7 +82,6 @@ class ImageVerifyModel :
     def response(self, image, challenge_type, challenge_id, challenge_name, challenge_info):
         try:
             prompt_template = self.select_prompt(challenge_type, challenge_id, challenge_name, challenge_info)
-            print("[DEBUG] PromptTemplate:", prompt_template)
 
             # LangChain PromptTemplate 객체인 경우 
             if hasattr(prompt_template, "format_prompt"):
@@ -108,7 +101,7 @@ class ImageVerifyModel :
                     "작은 텃밭 가꾸기는 작은 화단의 모습이 나왔을 경우 '예'를 출력해주세요. \n"
                     "너무 이미지가 흐리거나 블러 처리 되어있는 경우 무조건 '아니오'를 출력해주세요. \n"
                     "적합한 이미지인지 예/아니오로 대답해주세요. 결과는 무조건 예/아니오 로만 대답해주세요. \n"
-                    "### Assistant: " 
+                    "### Assistant:" 
                 )
 
             
