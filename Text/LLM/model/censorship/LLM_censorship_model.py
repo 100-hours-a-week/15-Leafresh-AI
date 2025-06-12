@@ -105,7 +105,9 @@ class CensorshipModel :
             #         "max_output_tokens": 512
             #     }
             # )
-            answer = result.strip().lower()
+            answer = result.strip().splitlines()[-1].strip().lower()
+
+            print("[result]\n", result)
             print("[answer]", answer)
 
             if answer.startswith("yes"):
