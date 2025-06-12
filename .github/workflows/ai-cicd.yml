@@ -265,7 +265,7 @@ jobs:
 
   deploy-api:
     name: Deploy - API
-    if: startsWith(github.ref, 'refs/tags/v') && (contains(github.ref, 'prod')
+    if: startsWith(github.ref, 'refs/tags/v') && contains(github.ref, 'prod')
     runs-on: ubuntu-latest
     outputs:
       status: ${{ steps.set-status.outputs.status }}
