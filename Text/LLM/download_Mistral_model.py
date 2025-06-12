@@ -24,7 +24,6 @@ def check_python_version():
     
     if major > 3 or (major == 3 and minor > 11):
         logger.warning(f"현재 Python 버전 {platform.python_version()}은(는) 일부 라이브러리와 호환성 문제가 있을 수 있습니다.")
-        logger.warning("Python 3.8-3.11 버전을 사용하는 것을 권장합니다.")
         return False
     return True
 
