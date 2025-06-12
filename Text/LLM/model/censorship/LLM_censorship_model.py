@@ -8,12 +8,40 @@ from typing import List
 from datetime import datetime
 from collections import Counter
 
+# Mistral Model
+from transformers import AutoTokenizer, AutoModelForCausalLM
+import torch
+
 class CensorshipModel :
+    '''
     def __init__(self):
         load_dotenv()
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
         init(project="leafresh", location="us-central1")
         self.model = GenerativeModel("gemini-2.0-flash")
+    '''
+
+    def __init__(self, model_path="/home/ubuntu/mistral"):
+        load_dotenv()
+        self.tokenizer = AutoTokenizer.from_pretrained(model_path)
+        self.model = AutoModelForCausalLM.from_pretrained(
+            model_path,
+            torch_dtype=torch.float16,
+            device_map="auto"
+        )
+
+    def generate_response(self, prompt: str, max_new_tokens=256) -> str:
+        inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
+        outputs = self.model.generate(
+            **inputs,
+            max_new_tokens=max_new_tokens,
+            temperature=0.3,
+            top_p=1.0,
+            top_k=32,
+            do_sample=True
+        )
+        result = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+        return result.strip()
 
     def validate(self, challenge_name: str, start_date: str, end_date: str, existing: List[dict]):
         def dates_overlap(s1, e1, s2, e2):
@@ -66,16 +94,17 @@ class CensorshipModel :
         )
 
         try:
-            result = self.model.generate_content(
-                prompt,
-                generation_config={
-                    "temperature": 0.3,
-                    "top_p": 1,
-                    "top_k": 32,
-                    "max_output_tokens": 512
-                }
-            )
-            answer = result.text.strip().lower()
+            answer = self.generate_response(prompt).lower()
+            # result = self.model.generate_content(
+            #     prompt,
+            #     generation_config={
+            #         "temperature": 0.3,
+            #         "top_p": 1,
+            #         "top_k": 32,
+            #         "max_output_tokens": 512
+            #     }
+            # )
+            # answer = result.text.strip().lower()
 
             if answer.startswith("yes"):
                 return True, "챌린지 생성이 가능합니다."
