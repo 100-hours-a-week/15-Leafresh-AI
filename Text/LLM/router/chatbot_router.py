@@ -87,7 +87,7 @@ async def select_category(
         try:
             # 전체 응답 텍스트를 누적하기 위한 변수 (base_info에서는 LLM_chatbot_base_info_model에서 파싱하므로 제거)
             # full_response = ""
-            eng_label, kor_label = label_mapping[category]
+            eng_label = label_mapping[category]
             
             for data_payload in get_base_info_llm_response(prompt, category=category):
                 event_type = data_payload.get("event")

@@ -1,13 +1,13 @@
 # 카테고리 매핑 상수 (공통 사용)
 label_mapping = {
-    "제로웨이스트": ("ZERO_WASTE", "제로웨이스트"),
-    "플로깅": ("PLOGGING", "플로깅"),
-    "탄소발자국": ("CARBON_FOOTPRINT", "탄소발자국"),
-    "에너지 절약": ("ENERGY_SAVING", "에너지 절약"),
-    "업사이클": ("UPCYCLING", "업사이클"),
-    "문화 공유": ("MEDIA", "문화 공유"),
-    "디지털 탄소": ("DIGITAL_CARBON", "디지털 탄소"),
-    "비건": ("VEGAN", "비건")
+    "제로웨이스트": "ZERO_WASTE",
+    "플로깅": "PLOGGING",
+    "탄소발자국": "CARBON_FOOTPRINT",
+    "에너지 절약": "ENERGY_SAVING",
+    "업사이클": "UPCYCLING",
+    "문화 공유": "MEDIA",
+    "디지털 탄소": "DIGITAL_CARBON",
+    "비건": "VEGAN"
 }
 
 # 키워드 및 비속어 필터링 리스트
