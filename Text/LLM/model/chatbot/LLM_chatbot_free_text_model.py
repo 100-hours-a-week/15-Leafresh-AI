@@ -369,9 +369,11 @@ def generate_response(state: ChatState) -> ChatState:
                 raise ValueError("challenges는 리스트 형태여야 합니다.")
             
             # 현재 카테고리 정보로 챌린지 데이터 업데이트
+            logger.info(f"Adding category info - eng: {eng_label}, kor: {kor_label}")
             for challenge in json.loads(response)["challenges"]:
                 challenge["category"] = eng_label
                 challenge["label"] = kor_label
+                logger.info(f"Added category info to challenge: {challenge['title']}")
             
             state["response"] = json.dumps(json.loads(response), ensure_ascii=False)
             print(f"Final response with category: {category}, eng: {eng_label}, kor: {kor_label}")
