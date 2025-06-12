@@ -5,7 +5,7 @@ on:
     tags:
       - 'v*-kellyn-dev'
       - 'v*-mac-dev'
-      - 'v1.*'
+      - 'v*-prod'
   pull_request:
     branches:
       - develop
@@ -185,6 +185,7 @@ jobs:
           script: |
             echo "기존 uvicorn 종료 시도"
             for pid in $(pgrep -f uvicorn); do
+              echo "uvicorn 현재 실행중"
               if [ "$pid" != "$$" ]; then
                 echo "Killing uvicorn PID $pid"
                 kill -15 "$pid"
@@ -264,7 +265,7 @@ jobs:
 
   deploy-api:
     name: Deploy - API
-    if: startsWith(github.ref, 'refs/tags/v1')
+    if: startsWith(github.ref, 'refs/tags/v') && (contains(github.ref, 'prod')
     runs-on: ubuntu-latest
     outputs:
       status: ${{ steps.set-status.outputs.status }}
