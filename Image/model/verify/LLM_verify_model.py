@@ -33,14 +33,13 @@ class ImageVerifyModel :
             with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as temp_file:
                 blob.download_to_filename(temp_file.name) 
 
-                # 이벤트 챌린지인 경우에만 리사이징 수행
-                if challenge_type.upper() == "GROUP" and 1 <= challenge_id <= 17:
-                    pillow_image = PILImage.open(temp_file.name).convert("RGB")
-                    if max(pillow_image.size) > 1024:
-                        new_width = 1024
-                        new_height = int(pillow_image.height * 1024 / pillow_image.width)
-                        pillow_image = pillow_image.resize((new_width, new_height))
-                    pillow_image.save(temp_file.name, format="PNG")
+                # 이미지 리사이징 수행
+                pillow_image = PILImage.open(temp_file.name).convert("RGB")
+                if max(pillow_image.size) > 1024:
+                    new_width = 1024
+                    new_height = int(pillow_image.height * 1024 / pillow_image.width)
+                    pillow_image = pillow_image.resize((new_width, new_height))
+                pillow_image.save(temp_file.name, format="PNG")
 
                 # VertexAI용 이미지 객체 로드 
                 image = VertexImage.load_from_file(temp_file.name)
