@@ -7,10 +7,7 @@ from contextlib import asynccontextmanager
 
 from model.verify.worker import run_worker
 from router.verify_router import router as verify_router
-<<<<<<< HEAD
 # from router.llava_router import router as llava_router
-=======
->>>>>>> ad84618 (Revert "Image 모델 삭제( 병합 시 혼란 예방)")
 
 load_dotenv()
 
@@ -26,8 +23,4 @@ app = FastAPI(lifespan=lifespan)
 
 # router 등록
 app.include_router(verify_router)
-<<<<<<< HEAD
 # app.include_router(llava_router)
-=======
->>>>>>> ad84618 (Revert "Image 모델 삭제( 병합 시 혼란 예방)")
-

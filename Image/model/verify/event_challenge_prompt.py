@@ -249,11 +249,3 @@ event_challenge_prompts = {
     )
 }
 
-'''
-# 
-    "": PromptTemplate.from_template(
-        "이 이미지는 '' 챌린지에 적합한가요? \n"
-        "흐린 이미지는 '아니오'입니다. \n"
-        "예/아니오로만 대답해주세요."
-    ),
-'''
