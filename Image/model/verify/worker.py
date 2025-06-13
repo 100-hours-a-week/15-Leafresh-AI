@@ -40,8 +40,28 @@ def run_worker():
             # 콜백 URL 내 challengeId 치환
             # -> CALLBACK_URL에 {verificationId}가 포함되는 경우, Python에서 실제 전송 전에 .format() 또는 f-string으로 치환해줘야함 
             formatted_url = os.getenv("CALLBACK_URL_VERIFY").format(verificationId=data["verificationId"])
+
+            # 로깅용
+            print(f"callback url: {formatted_url}")
             
             # 결과 콜백 전송
+            payload = {
+                "type": data["type"],
+                "memberId": data["memberId"],
+                "challengeId": data["challengeId"],
+                "date": data["date"],
+                "result": is_verified
+            }
+
+            response = requests.post(formatted_url, json=payload, timeout=5)
+
+            # 콜백 요청/응답 로깅
+            print(f"[CALLBACK] 전송 URL: {formatted_url}")
+            print(f"[CALLBACK] 전송 payload: {json.dumps(payload, ensure_ascii=False)}")
+            print(f"[CALLBACK] 응답 코드: {response.status_code}")
+            print(f"[CALLBACK] 응답 본문: {response.text}")
+
+            '''
             requests.post(formatted_url, json={
                 "type": data["type"],
                 "memberId": data["memberId"],
@@ -49,7 +69,7 @@ def run_worker():
                 "date": data["date"],
                 "result": is_verified
             })
-            
+            '''
             message.ack()
 
         except Exception as e:
