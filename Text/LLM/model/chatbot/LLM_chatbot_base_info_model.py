@@ -169,14 +169,26 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
             if new_text:
                 full_response += new_text
                 logger.info(f"토큰 수신: {new_text[:20]}...") # 처음 20자만 로깅하여 너무 길어지지 않게 함
-                yield {
-                    "event": "challenge",
-                    "data": json.dumps({
-                        "status": 200,
-                        "message": "토큰 생성",
-                        "data": {"token": new_text}
-                    }, ensure_ascii=False)
-                }
+                
+                cleaned_text = new_text
+                # "recommend", "challenges", "title", "description" 패턴 제거
+                cleaned_text = re.sub(r'"(recommend|challenges|title|description)":\s*("|\')?', '', cleaned_text)
+                # JSON 마크다운 및 괄호 제거
+                cleaned_text = cleaned_text.replace("```json", "").replace("```", "").strip()
+                if cleaned_text.startswith("{"):
+                    cleaned_text = cleaned_text[1:].strip()
+                if cleaned_text.endswith("}"):
+                    cleaned_text = cleaned_text[:-1].strip()
+                # 쉼표 제거
+                if cleaned_text.endswith(","):
+                    cleaned_text = cleaned_text[:-1].strip()
+                
+                # 빈 문자열은 스트리밍하지 않음
+                if cleaned_text:
+                    yield {
+                        "event": "challenge",
+                        "data": cleaned_text # 순수 토큰 문자열만 반환
+                    }
 
         logger.info("스트리밍 완료. 전체 응답 파싱 시작.")
         # 서버에서 직접 파싱
@@ -201,7 +213,7 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
             logger.info(f"파싱 전 JSON 문자열 (클린징 후): {json_string_to_parse[:500]}...") # 너무 길어지지 않게 처음 500자만 로깅
 
             # Langchain 파서를 사용하기 전에 json.loads로 먼저 파싱 시도
-            # 이렇게 하면 더 일반적인 JSON 오류를 잡을 수 있습니다.
+            # 이렇게 하면 더 일반적인 JSON 오류를 잡을 수 있습니다。
             parsed_data_temp = json.loads(json_string_to_parse)
             
             # Langchain 파서로 최종 파싱 (필요하다면)
@@ -220,11 +232,13 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
             logger.error(f"파싱 실패: {str(e)}")
             logger.error(f"문제가 된 전체 응답 (클린징 전): {full_response}")
             logger.error(f"문제가 된 JSON 문자열 (클린징 후): {json_string_to_parse}")
-            yield format_sse_response("error", {
+            yield {
+                    "event": "error",
+                    "data": json.dumps({
                     "status": 500,
                     "message": f"파싱 실패: {str(e)}",
                     "data": None
-            })
+            }, ensure_ascii=False)}
             return
 
         # 종료 이벤트
