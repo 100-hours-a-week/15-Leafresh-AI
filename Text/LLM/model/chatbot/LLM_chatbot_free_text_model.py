@@ -170,14 +170,26 @@ def get_llm_response(prompt: str) -> Generator[Dict[str, Any], None, None]:
             if new_text:
                 full_response += new_text
                 logger.info(f"토큰 수신: {new_text[:20]}...") # 처음 20자만 로깅하여 너무 길어지지 않게 함
-                yield {
-                    "event": "token",
-                    "data": {
-                        "status": 200,
-                        "message": "토큰 생성",
-                        "data": {"token": new_text}
+                
+                cleaned_text = new_text
+                # "recommend", "challenges", "title", "description" 패턴 제거
+                cleaned_text = re.sub(r'"(recommend|challenges|title|description)":\s*("|\')?', '', cleaned_text)
+                # JSON 마크다운 및 괄호 제거
+                cleaned_text = cleaned_text.replace("```json", "").replace("```", "").strip()
+                if cleaned_text.startswith("{"):
+                    cleaned_text = cleaned_text[1:].strip()
+                if cleaned_text.endswith("}"):
+                    cleaned_text = cleaned_text[:-1].strip()
+                # 쉼표 제거
+                if cleaned_text.endswith(","):
+                    cleaned_text = cleaned_text[:-1].strip()
+                
+                # 빈 문자열은 스트리밍하지 않음
+                if cleaned_text:
+                    yield {
+                        "event": "token",
+                        "data": cleaned_text # 순수 토큰 문자열만 직접 반환
                     }
-                }
 
         # 서버에서 직접 파싱
         logger.info("스트리밍 완료. 전체 응답 파싱 시작.")
@@ -188,32 +200,32 @@ def get_llm_response(prompt: str) -> Generator[Dict[str, Any], None, None]:
             logger.info(f"- challenges 개수: {len(parsed_data.get('challenges', []))}")
             yield {
                 "event": "complete",
-                "data": {
+                "data": json.dumps({
                     "status": 200,
                     "message": "모든 응답 완료",
                     "data": parsed_data
-                }
+                }, ensure_ascii=False)
             }
         except Exception as e:
             logger.error(f"파싱 실패: {str(e)}")
             yield {
                 "event": "error",
-                "data": {
+                "data": json.dumps({
                     "status": 500,
                     "message": f"파싱 실패: {str(e)}",
                     "data": None
-                }
+                }, ensure_ascii=False)
             }
 
     except Exception as e:
         logger.error(f"LLM 응답 생성 실패: {str(e)}")
         yield {
             "event": "error",
-            "data": {
+            "data": json.dumps({
                 "status": 500,
                 "message": f"LLM 응답 생성 실패: {str(e)}",
                 "data": None
-            }
+            }, ensure_ascii=False)
         }
 
 # 대화 상태를 관리하기 위한 타입 정의
@@ -349,7 +361,7 @@ def generate_response(state: ChatState) -> ChatState:
         for data_payload in get_llm_response(prompt):
             event_type = data_payload.get("event_type", "message")
             if event_type == "token":
-                response += data_payload.get("data", {}).get("token", "")
+                response += data_payload.get("data", "")
             elif event_type == "error":
                 state["error"] = data_payload.get("message", "오류 발생")
                 state["should_continue"] = False
