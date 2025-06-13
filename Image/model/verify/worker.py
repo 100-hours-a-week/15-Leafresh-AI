@@ -53,7 +53,7 @@ def run_worker():
                 "result": is_verified
             }
 
-            response = requests.post(formatted_url, json=payload, timeout=5)
+            response = requests.post(formatted_url, json=payload)
 
             # 콜백 요청/응답 로깅
             print(f"[CALLBACK] 전송 URL: {formatted_url}")
