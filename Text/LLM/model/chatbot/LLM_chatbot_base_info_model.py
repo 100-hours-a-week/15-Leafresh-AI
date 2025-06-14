@@ -8,7 +8,7 @@ from langchain.output_parsers import StructuredOutputParser, ResponseSchema
 from langgraph.graph import StateGraph, END
 from typing import TypedDict, Annotated, Sequence, Optional, Dict, List, Generator, Any
 from Text.LLM.model.chatbot.chatbot_constants import label_mapping, ENV_KEYWORDS, BAD_WORDS
-from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
+from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer, BitsAndBytesConfig
 import torch
 import os
 import json
@@ -80,13 +80,20 @@ try:
         token=hf_token
     )
     logger.info("Loading model...")
+    quantization_config = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_compute_dtype=torch.float16,
+        bnb_4bit_use_double_quant=True,
+        bnb_4bit_quant_type="nf4"
+        # load_in_8bit=True,
+        # llm_int8_enable_fp32_cpu_offload=True
+    )
     model = AutoModelForCausalLM.from_pretrained(
         "mistralai/Mistral-7B-Instruct-v0.3",
         cache_dir=MODEL_PATH,
         device_map="auto",
-        torch_dtype=torch.float16,
+        quantization_config=quantization_config,
         low_cpu_mem_usage=True,
-        trust_remote_code=True,
         token=hf_token
     )
 except Exception as e:
@@ -182,12 +189,20 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                 # 쉼표 제거
                 if cleaned_text.endswith(","):
                     cleaned_text = cleaned_text[:-1].strip()
+                # 추가 클랜징: 따옴표, 괄호, 쉼표 등 제거
+                cleaned_text = re.sub(r'["\']', '', cleaned_text)
+                cleaned_text = re.sub(r'[\[\]{}]', '', cleaned_text)
+                cleaned_text = re.sub(r',\s*$', '', cleaned_text)
+                cleaned_text = cleaned_text.strip()
                 
-                # 빈 문자열은 스트리밍하지 않음
                 if cleaned_text:
                     yield {
                         "event": "challenge",
-                        "data": cleaned_text # 순수 토큰 문자열만 반환
+                        "data": json.dumps({
+                            "status": 200,
+                            "message": "토큰 생성",
+                            "data": cleaned_text},
+                            ensure_ascii=False) # 순수 토큰 문자열만 반환
                     }
 
         logger.info("스트리밍 완료. 전체 응답 파싱 시작.")
