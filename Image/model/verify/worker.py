@@ -20,6 +20,10 @@ verifier = ImageVerifyModel()
 def run_worker():
     def callback(message):
         print("callback 메시지 수신됨", message)
+
+        print("[DEBUG] 수신된 raw data:", message.data)
+        print("[DEBUG] 파싱된 data dict:", data)
+
         try:
             data = json.loads(message.data.decode("utf-8"))
  
