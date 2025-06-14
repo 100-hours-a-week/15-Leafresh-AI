@@ -13,7 +13,6 @@ publisher = pubsub_v1.PublisherClient()
 topic_path = publisher.topic_path(project_id, topic_id)
 
 def add_task(data: dict):
-    print("[DEBUG] 발행되는 메시지:", data)
     message_json = json.dumps(data)
     future = publisher.publish(topic_path, message_json.encode("utf-8"))
 
