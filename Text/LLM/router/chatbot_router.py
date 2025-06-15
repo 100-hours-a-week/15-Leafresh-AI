@@ -11,6 +11,7 @@ import re
 from fastapi.responses import StreamingResponse
 from typing import Generator, AsyncGenerator
 import asyncio
+from urllib.parse import unquote  # URL 디코딩을 위한 import 추가
 
 router = APIRouter()
 
@@ -25,8 +26,19 @@ async def select_category(
     """
     사용자의 기본 정보를 기반으로 친환경 챌린지를 추천하는 SSE 엔드포인트
     """
+
+    
+    # URL 디코딩
+    if location:
+        location = unquote(location)
+    if workType:
+        workType = unquote(workType)
+    if category:
+        category = unquote(category)
+    
     # 입력값 검증
     if not location:
+        print("location 누락")
         raise HTTPException(
             status_code=400,
             detail={
@@ -36,6 +48,7 @@ async def select_category(
             }
         )
     if not workType:
+        print("workType 누락")
         raise HTTPException(
             status_code=400,
             detail={
@@ -45,6 +58,7 @@ async def select_category(
             }
         )
     if not category:
+        print("category 누락")
         raise HTTPException(
             status_code=400,
             detail={
@@ -56,6 +70,8 @@ async def select_category(
 
     # 유효한 카테고리 검증
     if category not in label_mapping:
+        print(f"유효하지 않은 카테고리: {category}")
+        print(f"유효한 카테고리 목록: {list(label_mapping.keys())}")
         raise HTTPException(
             status_code=400,
             detail={
@@ -97,7 +113,9 @@ async def select_category(
                     # LLM_chatbot_base_info_model에서 이미 json.dumps 처리된 문자열을 받음
                     yield {
                         "event": "challenge",
-                        "data": data_from_llm_model
+                        "data": data_from_llm_model,
+                        "id": None,
+                        "retry": None
                     }
                     
                 elif event_type == "close":
@@ -126,11 +144,13 @@ async def select_category(
                         
                         yield {
                             "event": "close",
-                            "data": json.dumps({ # sse_starlette가 다시 한 번 감싸지 않도록 json.dumps 사용
+                            "data": json.dumps({
                                 "status": 200,
                                 "message": "모든 챌린지 추천 완료",
                                 "data": final_data
-                            }, ensure_ascii=False)
+                            }, ensure_ascii=False),
+                            "id": None,
+                            "retry": None
                         }
                     except Exception as e:
                         raise HTTPException(
@@ -145,7 +165,9 @@ async def select_category(
                 elif event_type == "error":
                     yield {
                         "event": "error",
-                        "data": data_from_llm_model
+                        "data": data_from_llm_model,
+                        "id": None,
+                        "retry": None
                     }
                 
         except HTTPException:
