@@ -10,7 +10,7 @@ load_dotenv()
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 
 project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
-subscription_id = os.getenv("PUBSUB_SUBSCRIPTION")
+subscription_id = os.getenv("PUBSUB_SUBSCRIPTION_DEV")
 
 subscription_path = f"projects/{project_id}/subscriptions/{subscription_id}"
 
@@ -19,9 +19,12 @@ verifier = ImageVerifyModel()
 
 def run_worker():
     def callback(message):
-        print("callback 메시지 수신됨", message)
+        print("[CALLBACK] 메시지 수신됨", message)
+
         try:
             data = json.loads(message.data.decode("utf-8"))
+
+            print("[DEBUG] 파싱된 data dict:", data)
  
             blob_name = data["imageUrl"].split("/")[-1]
             challenge_type = data["type"]
@@ -40,9 +43,6 @@ def run_worker():
             # 콜백 URL 내 challengeId 치환
             # -> CALLBACK_URL에 {verificationId}가 포함되는 경우, Python에서 실제 전송 전에 .format() 또는 f-string으로 치환해줘야함 
             formatted_url = os.getenv("CALLBACK_URL_VERIFY").format(verificationId=data["verificationId"])
-
-            # 로깅용
-            print(f"callback url: {formatted_url}")
             
             # 결과 콜백 전송
             payload = {
@@ -53,13 +53,13 @@ def run_worker():
                 "result": is_verified
             }
 
-            response = requests.post(formatted_url, json=payload, timeout=5)
+            response = requests.post(formatted_url, json=payload)
 
             # 콜백 요청/응답 로깅
             print(f"[CALLBACK] 전송 URL: {formatted_url}")
             print(f"[CALLBACK] 전송 payload: {json.dumps(payload, ensure_ascii=False)}")
-            print(f"[CALLBACK] 응답 코드: {response.status_code}")
-            print(f"[CALLBACK] 응답 본문: {response.text}")
+            print(f"[CALLBACK] 전송 코드: {response.status_code}")
+            print(f"[CALLBACK] 전송 내용 본문: {response.text}")
 
             '''
             requests.post(formatted_url, json={
@@ -77,6 +77,7 @@ def run_worker():
             message.nack()
 
     # 구독 시작
+    print(f"[SUB] 구독 시작 시도: Listening on {subscription_path}...")
     future = subscriber.subscribe(subscription_path, callback=callback)
-    print(f"Listening on {subscription_path}...")
+    print("[DEBUG] subscriber.subscribe() 호출 완료")
     future.result()

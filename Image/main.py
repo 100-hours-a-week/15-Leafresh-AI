@@ -15,6 +15,7 @@ load_dotenv()
 # pubsub_v1이 동기로 실행되므로 async를 붙이지 않음 
 @asynccontextmanager
 async def lifespan(app: FastAPI):               # app 인자를 받는 형태가 아니면 에러가 발생하므로 삭제 불가능 
+    print("[DEBUG] Lifespan 시작됨")
     threading.Thread(target=run_worker, daemon=True).start()
     yield
 

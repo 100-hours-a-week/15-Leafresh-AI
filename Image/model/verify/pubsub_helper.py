@@ -16,5 +16,5 @@ def add_task(data: dict):
     message_json = json.dumps(data)
     future = publisher.publish(topic_path, message_json.encode("utf-8"))
 
-    print("publich_message 발행됨", data)
+    print("publich_message 발행됨: ", data)
     return future.result()
