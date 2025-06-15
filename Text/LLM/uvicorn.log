@@ -1,107 +1,0 @@
-nohup: ignoring input
-INFO:     Will watch for changes in these directories: ['/home/ubuntu/15-Leafresh-AI/Text/LLM']
-INFO:     Loading environment from '.env'
-INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-INFO:     Started reloader process [63463] using StatReload
-Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s]Loading checkpoint shards:  33%|███▎      | 1/3 [00:01<00:02,  1.47s/it]Loading checkpoint shards:  67%|██████▋   | 2/3 [00:02<00:01,  1.46s/it]Loading checkpoint shards: 100%|██████████| 3/3 [00:04<00:00,  1.39s/it]Loading checkpoint shards: 100%|██████████| 3/3 [00:04<00:00,  1.41s/it]
-Note: Environment variable`HF_TOKEN` is set and is the current active token independently from the token you've just configured.
-2025-06-14 23:10:03,390 - WARNING - Note: Environment variable`HF_TOKEN` is set and is the current active token independently from the token you've just configured.
-2025-06-14 23:10:03,390 - INFO - Hugging Face Hub에 성공적으로 로그인했습니다.
-2025-06-14 23:10:03,390 - INFO - Current file: /home/ubuntu/15-Leafresh-AI/Text/LLM/model/chatbot/LLM_chatbot_base_info_model.py
-2025-06-14 23:10:03,390 - INFO - Project root: /home/ubuntu/15-Leafresh-AI/Text/LLM
-2025-06-14 23:10:03,390 - INFO - Model path: /home/ubuntu/mistral
-2025-06-14 23:10:03,390 - INFO - 모델 경로: /home/ubuntu/mistral
-2025-06-14 23:10:03,391 - INFO - 사용 가능한 디바이스: cuda
-2025-06-14 23:10:03,391 - INFO - Loading tokenizer...
-2025-06-14 23:10:04,337 - INFO - Loading model...
-2025-06-14 23:10:04,885 - INFO - We will use 90% of the memory on device 0 for storing the model, and 10% for the buffer to avoid OOM. You can set `max_memory` in to a higher value to use more memory (at your own risk).
-Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s]Loading checkpoint shards:  33%|███▎      | 1/3 [00:06<00:12,  6.08s/it]Loading checkpoint shards:  67%|██████▋   | 2/3 [00:12<00:06,  6.22s/it]Loading checkpoint shards: 100%|██████████| 3/3 [00:17<00:00,  5.88s/it]Loading checkpoint shards: 100%|██████████| 3/3 [00:17<00:00,  5.96s/it]
-2025-06-14 23:10:23,725 - INFO - Model loaded successfully!
-2025-06-14 23:10:23,777 - INFO - Current file: /home/ubuntu/15-Leafresh-AI/Text/LLM/model/chatbot/LLM_chatbot_free_text_model.py
-2025-06-14 23:10:23,777 - INFO - Project root: /home/ubuntu/15-Leafresh-AI/Text/LLM
-2025-06-14 23:10:23,777 - INFO - Model path: /home/ubuntu/mistral
-2025-06-14 23:10:23,777 - INFO - 모델 경로: /home/ubuntu/mistral
-2025-06-14 23:10:23,777 - INFO - 사용 가능한 디바이스: cuda
-2025-06-14 23:10:23,777 - INFO - Loading tokenizer...
-2025-06-14 23:10:25,341 - INFO - Loading model...
-2025-06-14 23:10:25,584 - INFO - We will use 90% of the memory on device 0 for storing the model, and 10% for the buffer to avoid OOM. You can set `max_memory` in to a higher value to use more memory (at your own risk).
-Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s]Loading checkpoint shards:  33%|███▎      | 1/3 [00:02<00:05,  2.51s/it]Loading checkpoint shards:  67%|██████▋   | 2/3 [00:04<00:01,  1.95s/it]Loading checkpoint shards: 100%|██████████| 3/3 [00:05<00:00,  1.70s/it]Loading checkpoint shards: 100%|██████████| 3/3 [00:05<00:00,  1.83s/it]
-2025-06-14 23:10:31,693 - WARNING - Some parameters are on the meta device device because they were offloaded to the cpu.
-2025-06-14 23:10:31,693 - INFO - Model loaded successfully!
-2025-06-14 23:10:31,750 - INFO - Load pretrained SentenceTransformer: BAAI/bge-small-en-v1.5
-2025-06-14 23:10:34,338 - INFO - Use pytorch device_name: cuda
-2025-06-14 23:10:34,935 - INFO - HTTP Request: GET https://f8879519-a1ba-47ef-b346-87fef37d0b57.us-east4-0.gcp.cloud.qdrant.io:6333/collections/ChatBot_context_collection "HTTP/1.1 200 OK"
-INFO:     Started server process [63466]
-INFO:     Waiting for application startup.
-INFO:     Application startup complete.
-WARNING:  StatReload detected changes in 'router/feedback_router.py'. Reloading...
-INFO:     Shutting down
-INFO:     Waiting for application shutdown.
-INFO:     Application shutdown complete.
-INFO:     Finished server process [63466]
-WARNING:  StatReload detected changes in 'model/feedback/LLM_feedback_model.py'. Reloading...
-Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s]Loading checkpoint shards:  33%|███▎      | 1/3 [00:01<00:03,  1.50s/it]Loading checkpoint shards:  67%|██████▋   | 2/3 [00:02<00:01,  1.50s/it]Loading checkpoint shards: 100%|██████████| 3/3 [00:04<00:00,  1.42s/it]Loading checkpoint shards: 100%|██████████| 3/3 [00:04<00:00,  1.44s/it]
-Note: Environment variable`HF_TOKEN` is set and is the current active token independently from the token you've just configured.
-2025-06-14 23:13:33,882 - WARNING - Note: Environment variable`HF_TOKEN` is set and is the current active token independently from the token you've just configured.
-2025-06-14 23:13:33,882 - INFO - Hugging Face Hub에 성공적으로 로그인했습니다.
-2025-06-14 23:13:33,882 - INFO - Current file: /home/ubuntu/15-Leafresh-AI/Text/LLM/model/chatbot/LLM_chatbot_base_info_model.py
-2025-06-14 23:13:33,882 - INFO - Project root: /home/ubuntu/15-Leafresh-AI/Text/LLM
-2025-06-14 23:13:33,882 - INFO - Model path: /home/ubuntu/mistral
-2025-06-14 23:13:33,882 - INFO - 모델 경로: /home/ubuntu/mistral
-2025-06-14 23:13:33,882 - INFO - 사용 가능한 디바이스: cuda
-2025-06-14 23:13:33,882 - INFO - Loading tokenizer...
-2025-06-14 23:13:34,887 - INFO - Loading model...
-2025-06-14 23:13:35,442 - INFO - We will use 90% of the memory on device 0 for storing the model, and 10% for the buffer to avoid OOM. You can set `max_memory` in to a higher value to use more memory (at your own risk).
-Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s]Loading checkpoint shards:  33%|███▎      | 1/3 [00:06<00:12,  6.08s/it]Loading checkpoint shards:  67%|██████▋   | 2/3 [00:12<00:06,  6.26s/it]Loading checkpoint shards: 100%|██████████| 3/3 [00:18<00:00,  5.93s/it]Loading checkpoint shards: 100%|██████████| 3/3 [00:18<00:00,  6.00s/it]
-2025-06-14 23:13:54,337 - INFO - Model loaded successfully!
-2025-06-14 23:13:54,389 - INFO - Current file: /home/ubuntu/15-Leafresh-AI/Text/LLM/model/chatbot/LLM_chatbot_free_text_model.py
-2025-06-14 23:13:54,389 - INFO - Project root: /home/ubuntu/15-Leafresh-AI/Text/LLM
-2025-06-14 23:13:54,389 - INFO - Model path: /home/ubuntu/mistral
-2025-06-14 23:13:54,389 - INFO - 모델 경로: /home/ubuntu/mistral
-2025-06-14 23:13:54,389 - INFO - 사용 가능한 디바이스: cuda
-2025-06-14 23:13:54,389 - INFO - Loading tokenizer...
-2025-06-14 23:13:55,577 - INFO - Loading model...
-2025-06-14 23:13:55,817 - INFO - We will use 90% of the memory on device 0 for storing the model, and 10% for the buffer to avoid OOM. You can set `max_memory` in to a higher value to use more memory (at your own risk).
-Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s]Loading checkpoint shards:  33%|███▎      | 1/3 [00:02<00:05,  2.58s/it]Loading checkpoint shards:  67%|██████▋   | 2/3 [00:04<00:01,  1.98s/it]Loading checkpoint shards: 100%|██████████| 3/3 [00:05<00:00,  1.73s/it]Loading checkpoint shards: 100%|██████████| 3/3 [00:05<00:00,  1.86s/it]
-2025-06-14 23:14:02,033 - WARNING - Some parameters are on the meta device device because they were offloaded to the cpu.
-2025-06-14 23:14:02,033 - INFO - Model loaded successfully!
-2025-06-14 23:14:02,090 - INFO - Load pretrained SentenceTransformer: BAAI/bge-small-en-v1.5
-2025-06-14 23:14:05,106 - INFO - Use pytorch device_name: cuda
-2025-06-14 23:14:05,705 - INFO - HTTP Request: GET https://f8879519-a1ba-47ef-b346-87fef37d0b57.us-east4-0.gcp.cloud.qdrant.io:6333/collections/ChatBot_context_collection "HTTP/1.1 200 OK"
-INFO:     Started server process [63770]
-INFO:     Waiting for application startup.
-INFO:     Application startup complete.
-WARNING:  StatReload detected changes in 'model/feedback/LLM_feedback_model.py'. Reloading...
-INFO:     Shutting down
-INFO:     Waiting for application shutdown.
-INFO:     Application shutdown complete.
-INFO:     Finished server process [63770]
-Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s]Loading checkpoint shards:  33%|███▎      | 1/3 [00:01<00:03,  1.52s/it]Loading checkpoint shards:  67%|██████▋   | 2/3 [00:02<00:01,  1.50s/it]Loading checkpoint shards: 100%|██████████| 3/3 [00:04<00:00,  1.41s/it]Loading checkpoint shards: 100%|██████████| 3/3 [00:04<00:00,  1.43s/it]
-Note: Environment variable`HF_TOKEN` is set and is the current active token independently from the token you've just configured.
-2025-06-14 23:16:59,453 - WARNING - Note: Environment variable`HF_TOKEN` is set and is the current active token independently from the token you've just configured.
-2025-06-14 23:16:59,453 - INFO - Hugging Face Hub에 성공적으로 로그인했습니다.
-2025-06-14 23:16:59,454 - INFO - Current file: /home/ubuntu/15-Leafresh-AI/Text/LLM/model/chatbot/LLM_chatbot_base_info_model.py
-2025-06-14 23:16:59,454 - INFO - Project root: /home/ubuntu/15-Leafresh-AI/Text/LLM
-2025-06-14 23:16:59,454 - INFO - Model path: /home/ubuntu/mistral
-2025-06-14 23:16:59,454 - INFO - 모델 경로: /home/ubuntu/mistral
-2025-06-14 23:16:59,454 - INFO - 사용 가능한 디바이스: cuda
-2025-06-14 23:16:59,454 - INFO - Loading tokenizer...
-2025-06-14 23:17:00,376 - INFO - Loading model...
-2025-06-14 23:17:00,939 - INFO - We will use 90% of the memory on device 0 for storing the model, and 10% for the buffer to avoid OOM. You can set `max_memory` in to a higher value to use more memory (at your own risk).
-Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s]Loading checkpoint shards:  33%|███▎      | 1/3 [00:06<00:12,  6.15s/it]Loading checkpoint shards:  67%|██████▋   | 2/3 [00:12<00:06,  6.28s/it]Loading checkpoint shards: 100%|██████████| 3/3 [00:18<00:00,  5.94s/it]Loading checkpoint shards: 100%|██████████| 3/3 [00:18<00:00,  6.02s/it]
-2025-06-14 23:17:19,904 - INFO - Model loaded successfully!
-2025-06-14 23:17:19,957 - INFO - Current file: /home/ubuntu/15-Leafresh-AI/Text/LLM/model/chatbot/LLM_chatbot_free_text_model.py
-2025-06-14 23:17:19,957 - INFO - Project root: /home/ubuntu/15-Leafresh-AI/Text/LLM
-2025-06-14 23:17:19,957 - INFO - Model path: /home/ubuntu/mistral
-2025-06-14 23:17:19,957 - INFO - 모델 경로: /home/ubuntu/mistral
-2025-06-14 23:17:19,957 - INFO - 사용 가능한 디바이스: cuda
-2025-06-14 23:17:19,957 - INFO - Loading tokenizer...
-2025-06-14 23:17:21,158 - INFO - Loading model...
-2025-06-14 23:17:21,404 - INFO - We will use 90% of the memory on device 0 for storing the model, and 10% for the buffer to avoid OOM. You can set `max_memory` in to a higher value to use more memory (at your own risk).
-Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s]Loading checkpoint shards:  33%|███▎      | 1/3 [00:02<00:05,  2.53s/it]Loading checkpoint shards:  67%|██████▋   | 2/3 [00:04<00:01,  1.96s/it]Loading checkpoint shards: 100%|██████████| 3/3 [00:05<00:00,  1.72s/it]Loading checkpoint shards: 100%|██████████| 3/3 [00:05<00:00,  1.84s/it]
-2025-06-14 23:17:28,030 - WARNING - Some parameters are on the meta device device because they were offloaded to the cpu.
-2025-06-14 23:17:28,030 - INFO - Model loaded successfully!
-2025-06-14 23:17:28,087 - INFO - Load pretrained SentenceTransformer: BAAI/bge-small-en-v1.5
-WARNING:  StatReload detected changes in 'model/feedback/LLM_feedback_model.py'. Reloading...
-WARNING:  StatReload detected changes in 'router/feedback_router.py'. Reloading...
-Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s]
