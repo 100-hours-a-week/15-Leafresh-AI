@@ -592,3 +592,66 @@ gc.collect()
 3. 응답 완료 시점에 response_completed = True 설정
 4. 에러 발생 시에도 response_completed = True 설정
 
+### 문제점
+- LLM 모델 로딩 및 응답 생성 과정에서 불필요하게 중복된 메모리 정리 로직이 존재
+- `torch.cuda.empty_cache()`와 `gc.collect()`가 여러 곳에서 호출되어 오히려 성능에 영향을 줄 수 있음
+
+### 원인 분석
+- 모델 로드 시점에만 한 번 메모리 정리를 수행하면 충분함
+- 스트리밍 응답 처리 중에는 모델이 이미 로드되어 있으므로 추가적인 메모리 정리가 대부분 불필요함
+
+### 해결 과정
+`Text/LLM/model/chatbot/LLM_chatbot_base_info_model.py` 파일의 모델 로드 부분에서 중복되거나 불필요한 메모리 정리 로직을 제거하고, 모델 로드 전에만 한 번 실행되도록 통합:
+
+```python
+# 모델 로드 전 메모리 정리
+torch.cuda.empty_cache()
+gc.collect()
+
+# 모델 로드 시 메모리 최적화 옵션 추가
+model = AutoModelForCausalLM.from_pretrained(
+    "mistralai/Mistral-7B-Instruct-v0.3",
+    cache_dir=MODEL_PATH,
+    device_map="auto",
+    low_cpu_mem_usage=True,
+    token=hf_token,
+    torch_dtype=torch.float16,
+    trust_remote_code=True,
+    max_position_embeddings=2048,
+    quantization_config=quantization_config,
+    offload_folder="offload",
+    offload_state_dict=True
+)
+
+# 메모리 최적화를 위한 설정 (유지)
+model.config.use_cache = False
+model.eval()
+
+# ... 기존 코드 (get_llm_response 함수 내부에서 불필요한 메모리 정리 제거) ...
+
+def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], None, None]:
+    # ... 기존 코드 ...
+    # 스트리밍 시작 전 메모리 정리 (이 부분 제거)
+    # torch.cuda.empty_cache()
+    # gc.collect()
+
+    # ... 기존 코드 ...
+
+    # 스레드 완료 대기
+    thread.join()
+
+    # 토큰 캐시 정리 (필요시 유지)
+    if hasattr(streamer, 'token_cache'):
+        streamer.token_cache = []
+
+    # 메모리 정리 (이 부분 제거)
+    # torch.cuda.empty_cache()
+    # gc.collect()
+
+    # ... 나머지 코드 ...
+```
+
+### 실무 팁
+- `torch.cuda.empty_cache()`와 `gc.collect()`는 필요한 시점에 한 번만 호출하는 것이 효율적임.
+- 모델 로드 시점에 메모리를 최적화하고, 이후 불필요한 호출을 자제하여 성능 오버헤드를 줄임.
+- `model.config.use_cache = False`와 같은 모델 자체의 캐시 설정을 활용하여 메모리 사용량을 관리.

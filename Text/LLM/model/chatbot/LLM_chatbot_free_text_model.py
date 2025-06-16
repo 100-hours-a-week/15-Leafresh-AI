@@ -8,7 +8,7 @@ from langchain.output_parsers import StructuredOutputParser, ResponseSchema
 from langgraph.graph import StateGraph, END
 from typing import TypedDict, Annotated, Sequence, Optional, Dict, List, Generator, Any
 from Text.LLM.model.chatbot.chatbot_constants import label_mapping, ENV_KEYWORDS, BAD_WORDS
-from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
+from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer, BitsAndBytesConfig
 import torch
 import os
 import json
@@ -69,8 +69,6 @@ logger.info(f"모델 경로: {MODEL_PATH}")
 # GPU 사용 가능 여부 확인
 device = "cuda" if torch.cuda.is_available() else "cpu"
 logger.info(f"사용 가능한 디바이스: {device}")
-
-from transformers import BitsAndBytesConfig
 
 # 모델과 토크나이저 초기화
 try:
@@ -182,6 +180,7 @@ def get_llm_response(prompt: str) -> Generator[Dict[str, Any], None, None]:
         logger.info(f"토크나이저 입력 준비 완료. 입력 토큰 수: {inputs.input_ids.shape[1]}")
         streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
 
+        # 모델 생성 설정
         generation_kwargs = dict(
             inputs,
             streamer=streamer,
@@ -197,23 +196,24 @@ def get_llm_response(prompt: str) -> Generator[Dict[str, Any], None, None]:
         # 전체 응답 누적용
         full_response = ""
         logger.info("스트리밍 응답 대기 중...")
+        response_completed = False # 응답 완료 여부를 추적하는 플래그
 
         for new_text in streamer:
-            if new_text:
+            if new_text and not response_completed:
                 full_response += new_text
                 logger.info(f"토큰 수신: {new_text[:20]}...")
                 
                 # 토큰 정제 - 순수 텍스트만 추출
                 cleaned_text = new_text
                 # JSON 관련 문자열 제거
-                cleaned_text = re.sub(r'"(recommend|challenges|title|description)":\s*("|\')?', '', cleaned_text)
+                cleaned_text = re.sub(r'\"(recommend|challenges|title|description)\":\\s*(\"|\\\')?', '', cleaned_text)
                 # 마크다운 및 JSON 구조 제거
                 cleaned_text = cleaned_text.replace("```json", "").replace("```", "").strip()
-                cleaned_text = re.sub(r'["\']', '', cleaned_text)  # 따옴표 제거
+                cleaned_text = re.sub(r'[\"\\\']', '', cleaned_text)  # 따옴표 제거
                 cleaned_text = re.sub(r'[\[\]{}]', '', cleaned_text)  # 괄호 제거
-                cleaned_text = re.sub(r',\s*$', '', cleaned_text)  # 끝의 쉼표 제거
+                cleaned_text = re.sub(r',\\s*$', '', cleaned_text)  # 끝의 쉼표 제거
                 # 불필요한 공백 제거
-                cleaned_text = re.sub(r'\s+', ' ', cleaned_text)
+                cleaned_text = re.sub(r'\\s+', ' ', cleaned_text)
                 cleaned_text = cleaned_text.strip()
                 
                 if cleaned_text:
@@ -227,16 +227,24 @@ def get_llm_response(prompt: str) -> Generator[Dict[str, Any], None, None]:
                         }, ensure_ascii=False)
                     }
 
-        # 서버에서 직접 파싱
+        # 스레드 완료 대기
+        thread.join()
+        
+        # 토큰 캐시 정리
+        if hasattr(streamer, 'token_cache'):
+            streamer.token_cache = []
+        
+        # 전체 응답 파싱
         logger.info("스트리밍 완료. 전체 응답 파싱 시작.")
 
         # JSON 파싱 전에 마크다운 제거
-        full_response = re.sub(r"^```json\s*|\s*```$", "", full_response.strip())
+        full_response = re.sub(r"^```json\\s*|\\s*```$", "", full_response.strip())
         try:
             parsed_data = rag_parser.parse(full_response.strip())
             logger.info("파싱 성공. 응답 데이터 구조:")
             logger.info(f"파싱 성공: {parsed_data}")
             logger.info(f"- challenges 개수: {len(parsed_data.get('challenges', []))}")
+            response_completed = True # 응답 완료 플래그 설정
             yield {
                 "event": "close",
                 "data": json.dumps({
@@ -247,6 +255,7 @@ def get_llm_response(prompt: str) -> Generator[Dict[str, Any], None, None]:
             }
         except Exception as e:
             logger.error(f"파싱 실패: {str(e)}")
+            response_completed = True # 에러 발생 시에도 응답 완료 플래그 설정
             yield {
                 "event": "error",
                 "data": json.dumps({
@@ -255,10 +264,10 @@ def get_llm_response(prompt: str) -> Generator[Dict[str, Any], None, None]:
                     "data": None
                 }, ensure_ascii=False)
             }
-            return
-
     except Exception as e:
-        logger.error(f"LLM 응답 생성 실패: {str(e)}")
+        logger.error(f"=== 예외 발생 ===")
+        logger.error(f"예외 타입: {type(e).__name__}")
+        logger.error(f"예외 메시지: {str(e)}")
         yield {
             "event": "error",
             "data": json.dumps({
