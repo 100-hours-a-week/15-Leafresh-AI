@@ -13,3 +13,5 @@ Content-Type: application/json
   "challengeInfo": ""
 }
 
+###
+GET http://localhost:7000/health

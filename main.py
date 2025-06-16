@@ -18,6 +18,8 @@ from router.feedback_router import router as feedback_router
 from router.feedback_router import feedback_exception_handler
 from router.feedback_router import feedback_http_exception_handler
 
+from router.health_router import router as health_router
+
 load_dotenv()
 
 # worker를 main 실행할 때 지속적으로 실행되도록 변경 
@@ -35,6 +37,7 @@ app.include_router(verify_router)
 app.include_router(censorship_router)
 app.include_router(chatbot_router)
 app.include_router(feedback_router)
+app.include_router(health_router)
 
 # censorship model exceptions (422, 500, 503 etc.)
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
