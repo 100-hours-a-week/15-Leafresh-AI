@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from typing import Generator, AsyncGenerator
 import asyncio
 from urllib.parse import unquote  # URL 디코딩을 위한 import 추가
+import json
 
 router = APIRouter()
 
@@ -26,8 +27,6 @@ async def select_category(
     """
     사용자의 기본 정보를 기반으로 친환경 챌린지를 추천하는 SSE 엔드포인트
     """
-
-    
     # URL 디코딩
     if location:
         location = unquote(location)
@@ -92,97 +91,101 @@ async def select_category(
 
     # SSE 응답 생성
     async def event_generator():
-        # 세션 정보만 저장 (RAG 사용하지 않음)
-        if sessionId and sessionId not in conversation_states:
-            conversation_states[sessionId] = {
-                "messages": [],
-                "category": category,
-                "base_category": category
-            }
-
         try:
-            # 전체 응답 텍스트를 누적하기 위한 변수 (base_info에서는 LLM_chatbot_base_info_model에서 파싱하므로 제거)
-            # full_response = ""
-            eng_label = label_mapping[category]
-            
-            for data_payload in get_base_info_llm_response(prompt, category=category):
-                event_type = data_payload.get("event")
-                data_from_llm_model = data_payload.get("data")
-                
-                if event_type == "challenge":
-                    # LLM_chatbot_base_info_model에서 이미 json.dumps 처리된 문자열을 받음
-                    yield {
-                        "event": "challenge",
-                        "data": data_from_llm_model,
-                        "id": None,
-                        "retry": None
-                    }
-                    
-                elif event_type == "close":
-                    try:
-                        # LLM 모델에서 이미 파싱된 데이터를 받음 (json.dumps 처리된 문자열)
-                        # 여기서는 문자열을 다시 파싱해서 딕셔너리로 만듦
-                        parsed_data = json.loads(data_from_llm_model) if isinstance(data_from_llm_model, str) else data_from_llm_model
-                        
-                        # 파싱된 데이터가 유효한지 확인
-                        if not isinstance(parsed_data, dict):
-                            raise ValueError("파싱된 데이터가 딕셔너리가 아닙니다.")
-                            
-                        # 'data' 키 안에 실제 데이터가 있는지 확인
-                        if "data" not in parsed_data or not isinstance(parsed_data["data"], dict):
-                            raise ValueError("파싱된 데이터에 유효한 'data' 키가 없습니다.")
-                            
-                        final_data = parsed_data["data"]
+            # 세션 정보만 저장 (RAG 사용하지 않음)
+            if sessionId and sessionId not in conversation_states:
+                conversation_states[sessionId] = {
+                    "messages": [],
+                    "category": category,
+                    "base_category": category
+                }
 
-                        if "challenges" not in final_data:
-                            raise ValueError("파싱된 데이터에 'challenges' 키가 없습니다.")
-                            
-                        # LLM_chatbot_base_info_model에서 이미 카테고리/라벨이 추가되므로 여기서는 추가하지 않음
-                        # for challenge in final_data["challenges"]:
-                        #     challenge["category"] = eng_label
-                        #     challenge["label"] = kor_label
-                        
+            # 전체 응답 텍스트를 누적하기 위한 변수
+            eng_label = label_mapping[category]
+
+            for data_payload in get_base_info_llm_response(prompt, category=category):
+                try:
+                    event_type = data_payload.get("event")
+                    data_from_llm_model = data_payload.get("data")
+
+                    if not event_type or not data_from_llm_model:
+                        continue  # 유효하지 않은 이벤트는 건너뛰기
+
+                    if event_type == "challenge":
                         yield {
-                            "event": "close",
-                            "data": json.dumps({
-                                "status": 200,
-                                "message": "모든 챌린지 추천 완료",
-                                "data": final_data
-                            }, ensure_ascii=False),
-                            "id": None,
-                            "retry": None
+                            "event": "challenge",
+                            "data": data_from_llm_model
                         }
-                    except Exception as e:
-                        raise HTTPException(
-                            status_code=500,
-                            detail={
-                                "status": 500,
-                                "message": f"파싱 실패: {str(e)}",
-                                "data": None
+
+                    elif event_type == "close":
+                        try:
+                            parsed_json_data = json.loads(data_from_llm_model) if isinstance(data_from_llm_model, str) else data_from_llm_model
+
+                            if not isinstance(parsed_json_data, dict):
+                                raise ValueError("파싱된 데이터가 딕셔너리가 아닙니다.")
+
+                            if "data" not in parsed_json_data or not isinstance(parsed_json_data["data"], dict):
+                                raise ValueError("파싱된 데이터에 유효한 'data' 키가 없습니다.")
+
+                            final_data = parsed_json_data["data"]
+
+                            if "challenges" not in final_data:
+                                raise ValueError("파싱된 데이터에 'challenges' 키가 없습니다.")
+
+                            yield {
+                                "event": "json",
+                                "data": json.dumps({
+                                    "status": 200,
+                                    "message": "모든 챌린지 추천 완료",
+                                    "data": final_data
+                                }, ensure_ascii=False)
                             }
-                        )
-                    
-                elif event_type == "error":
+                            
+                        except Exception as e:
+                            yield {
+                                "event": "error",
+                                "data": json.dumps({
+                                    "status": 500,
+                                    "message": f"파싱 실패: {str(e)}",
+                                    "data": None
+                                }, ensure_ascii=False)
+                            }
+
+                    elif event_type == "error":
+                        yield {
+                            "event": "error",
+                            "data": data_from_llm_model
+                        }
+
+                except Exception as e:
+                    logger.error(f"이벤트 처리 중 에러 발생: {str(e)}")
                     yield {
                         "event": "error",
-                        "data": data_from_llm_model,
-                        "id": None,
-                        "retry": None
+                        "data": json.dumps({
+                            "status": 500,
+                            "message": f"이벤트 처리 실패: {str(e)}",
+                            "data": None
+                        }, ensure_ascii=False)
                     }
-                
-        except HTTPException:
-            raise
+
         except Exception as e:
-            raise HTTPException(
-                status_code=500,
-                detail={
+            logger.error(f"SSE 스트림 처리 중 에러 발생: {str(e)}")
+            yield {
+                "event": "error",
+                "data": json.dumps({
                     "status": 500,
                     "message": f"서버 내부 오류로 추천에 실패했습니다: {str(e)}",
                     "data": None
-                }
-            )
+                }, ensure_ascii=False)
+            }
+        finally:
+            # 연결 종료 이벤트는 이미 파싱된 데이터와 함께 전송되었으므로 여기서는 전송하지 않음
+            pass
 
-    return EventSourceResponse(event_generator())
+    return EventSourceResponse(
+        event_generator(),
+        media_type="text/event-stream"
+    )
 
 # LangChain 기반 RAG 추천
 @router.get("/ai/chatbot/recommendation/free-text")
@@ -263,17 +266,22 @@ async def freetext_rag(
                 event_type = data_payload.get("event")
                 data_from_llm_model = data_payload.get("data")
 
+                # If data_from_llm_model is a JSON string, parse it to dict before key access
+                if isinstance(data_from_llm_model, str):
+                    try:
+                        data_from_llm_model = json.loads(data_from_llm_model)
+                    except Exception:
+                        pass
+
                 if event_type == "token":
-                    # LLM_chatbot_free_text_model에서 이미 딕셔너리로 받음
                     yield {
                         "event": "token",
                         "data": json.dumps(data_from_llm_model, ensure_ascii=False)
                     }
-                    if "data" in data_from_llm_model and "token" in data_from_llm_model["data"]:
+                    if isinstance(data_from_llm_model, dict) and "data" in data_from_llm_model and "token" in data_from_llm_model["data"]:
                         full_response_text += data_from_llm_model["data"]["token"]
-                        
+
                 elif event_type == "complete":
-                    # LLM_chatbot_free_text_model에서 이미 딕셔너리로 받음
                     # 대화 기록 업데이트 (챌린지 추천 결과 전체를 저장)
                     if sessionId in conversation_states:
                         conversation_states[sessionId]["messages"].append(f"AI: {full_response_text}")
@@ -282,21 +290,30 @@ async def freetext_rag(
                         "event": "complete",
                         "data": json.dumps(data_from_llm_model, ensure_ascii=False)
                     }
+                    parsed_data = {}
+                    try:
+                        if isinstance(data_from_llm_model, dict):
+                            parsed_data = data_from_llm_model
+                        else:
+                            parsed_data = json.loads(data_from_llm_model)
+                    except Exception:
+                        logger.warning("JSON 파싱 실패로 빈 dict 사용")
+
                     yield {
                         "event": "close",
                         "data": json.dumps({
                             "status": 200,
                             "message": "모든 응답 완료",
-                            "data": data_from_llm_model["data"] # complete 이벤트의 data를 그대로 사용
+                            "data": parsed_data.get("data", None)
                         }, ensure_ascii=False)
                     }
-                    
+
                 elif event_type == "error":
                     yield {
                         "event": "error",
                         "data": json.dumps(data_from_llm_model, ensure_ascii=False)
                     }
-                
+
         except HTTPException:
             raise
         except Exception as e:
@@ -309,7 +326,7 @@ async def freetext_rag(
                 }
             )
 
-    return EventSourceResponse(event_generator())
+    return EventSourceResponse(event_generator(), media_type="text/event-stream")  # 프로세스 종료 방지
 
 # # 세션 초기화 엔드포인트 추가 (필요 시)
 # @router.post("/ai/chatbot/clear-conversation")

@@ -30,6 +30,17 @@ logger = logging.getLogger(__name__)
 # 환경 변수 로드
 load_dotenv()
 
+# Hugging Face 로그인
+hf_token = os.getenv("HUGGINGFACE_API_KEYMAC")
+if hf_token:
+    try:
+        login(token=hf_token)
+        logger.info("Hugging Face Hub에 성공적으로 로그인했습니다.")
+    except Exception as e:
+        logger.error(f"Hugging Face Hub 로그인 실패: {e}")
+else:
+    logger.warning("HUGGINGFACE_API_KEYMAC 환경 변수를 찾을 수 없습니다. Hugging Face 로그인 건너뜜.")
+
 # 프로젝트 루트 경로 설정
 current_file = os.path.abspath(__file__)
 logger.info(f"Current file: {current_file}")
@@ -59,6 +70,8 @@ logger.info(f"모델 경로: {MODEL_PATH}")
 device = "cuda" if torch.cuda.is_available() else "cpu"
 logger.info(f"사용 가능한 디바이스: {device}")
 
+from transformers import BitsAndBytesConfig
+
 # 모델과 토크나이저 초기화
 try:
     logger.info("Loading tokenizer...")
@@ -68,18 +81,27 @@ try:
         torch_dtype=torch.float16
     )
     logger.info("Loading model...")
-    
-    # 메모리 최적화를 위한 설정
-    model = AutoModelForCausalLM.from_pretrained(
-        "mistralai/Mistral-7B-Instruct-v0.3",
-        cache_dir=MODEL_PATH,
-        device_map="auto",
-        torch_dtype=torch.float16,
-        low_cpu_mem_usage=True,
-        trust_remote_code=True
+
+    # 4비트 양자화 설정 - 모델 크기를 75% 감소시키면서 성능 유지
+    quantization_config = BitsAndBytesConfig(
+        load_in_4bit=True,  # 4비트 양자화 활성화
+        bnb_4bit_compute_dtype=torch.float16,  # 계산은 16비트로 수행
+        bnb_4bit_use_double_quant=True,  # 이중 양자화로 메모리 추가 절약
+        bnb_4bit_quant_type="fp4"  # 4비트 부동소수점 사용 & GPU 환경에서만 실행되므로(Mistral 7B 모델은 GGUF가 아님)
     )
-    
-    logger.info("Model loaded successfully!")
+    model = AutoModelForCausalLM.from_pretrained(
+        "mistralai/Mistral-7B-Instruct-v0.3",  # Mistral-7B 모델 로드
+        cache_dir=MODEL_PATH,  # 모델 파일을 저장할 로컬 경로
+        device_map="auto",  # GPU/CPU 자동 할당
+        low_cpu_mem_usage=True,  # CPU 메모리 사용량 최소화
+        token=hf_token,  # Hugging Face API 토큰
+        torch_dtype=torch.float16,  # 16비트 부동소수점 사용
+        trust_remote_code=True,  # 커스텀 코드 실행 허용
+        max_position_embeddings=2048,  # 최대 입력 길이 제한
+        quantization_config=quantization_config,  # 4비트 양자화 적용
+        offload_folder="offload",  # 메모리 부족시 모델 일부를 디스크에 저장
+        offload_state_dict=True  # 모델 상태를 디스크에 저장하여 메모리 절약
+    )
     
 except Exception as e:
     logger.error(f"모델 로딩 실패: {str(e)}")
@@ -91,6 +113,8 @@ except Exception as e:
             "data": None
         }
     )
+
+logger.info("Model loaded successfully!")
 
 # Qdrant 설정
 QDRANT_URL = os.getenv("QDRANT_URL")
@@ -135,10 +159,18 @@ custom_prompt = PromptTemplate(
 현재 요청:
 {{query}}
 
-JSON 포맷:
-{escaped_format}
+주의사항:
+1. 모든 속성 이름은 반드시 큰따옴표(")로 둘러싸야 합니다.
+2. 모든 문자열 값도 큰따옴표(")로 둘러싸야 합니다.
+3. recommend 필드에는 {{category}} 관련 추천 문구를 포함해야 합니다.
+4. 출력은 반드시 아래 JSON 포맷과 동일한 구조여야 하며, 마크다운 형식으로 감싸야 합니다.
 
-응답은 반드시 한글로 위 JSON형식 그대로 출력하세요. [/INST]</s>
+출력 형식 예시:
+```json
+{escaped_format}
+```
+반드시 위의 json 블록 안에 전체 응답을 한글로 출력하세요.
+[/INST]</s>
 """
 )
 
@@ -169,40 +201,47 @@ def get_llm_response(prompt: str) -> Generator[Dict[str, Any], None, None]:
         for new_text in streamer:
             if new_text:
                 full_response += new_text
-                logger.info(f"토큰 수신: {new_text[:20]}...") # 처음 20자만 로깅하여 너무 길어지지 않게 함
+                logger.info(f"토큰 수신: {new_text[:20]}...")
                 
+                # 토큰 정제 - 순수 텍스트만 추출
                 cleaned_text = new_text
-                # "recommend", "challenges", "title", "description" 패턴 제거
+                # JSON 관련 문자열 제거
                 cleaned_text = re.sub(r'"(recommend|challenges|title|description)":\s*("|\')?', '', cleaned_text)
-                # JSON 마크다운 및 괄호 제거
+                # 마크다운 및 JSON 구조 제거
                 cleaned_text = cleaned_text.replace("```json", "").replace("```", "").strip()
-                if cleaned_text.startswith("{"):
-                    cleaned_text = cleaned_text[1:].strip()
-                if cleaned_text.endswith("}"):
-                    cleaned_text = cleaned_text[:-1].strip()
-                # 쉼표 제거
-                if cleaned_text.endswith(","):
-                    cleaned_text = cleaned_text[:-1].strip()
+                cleaned_text = re.sub(r'["\']', '', cleaned_text)  # 따옴표 제거
+                cleaned_text = re.sub(r'[\[\]{}]', '', cleaned_text)  # 괄호 제거
+                cleaned_text = re.sub(r',\s*$', '', cleaned_text)  # 끝의 쉼표 제거
+                # 불필요한 공백 제거
+                cleaned_text = re.sub(r'\s+', ' ', cleaned_text)
+                cleaned_text = cleaned_text.strip()
                 
-                # 빈 문자열은 스트리밍하지 않음
                 if cleaned_text:
+                    # SSE 응답 전송 - 순수 텍스트만 전송
                     yield {
-                        "event": "token",
-                        "data": cleaned_text # 순수 토큰 문자열만 직접 반환
+                        "event": "challenge",
+                        "data": json.dumps({
+                            "status": 200,
+                            "message": "토큰 생성",
+                            "data": cleaned_text
+                        }, ensure_ascii=False)
                     }
 
         # 서버에서 직접 파싱
         logger.info("스트리밍 완료. 전체 응답 파싱 시작.")
+
+        # JSON 파싱 전에 마크다운 제거
+        full_response = re.sub(r"^```json\s*|\s*```$", "", full_response.strip())
         try:
             parsed_data = rag_parser.parse(full_response.strip())
             logger.info("파싱 성공. 응답 데이터 구조:")
-            logger.info(f"- recommend: {parsed_data.get('recommend', '')[:50]}...")
+            logger.info(f"파싱 성공: {parsed_data}")
             logger.info(f"- challenges 개수: {len(parsed_data.get('challenges', []))}")
             yield {
-                "event": "complete",
+                "event": "close",
                 "data": json.dumps({
                     "status": 200,
-                    "message": "모든 응답 완료",
+                    "message": "모든 챌린지 추천 완료",
                     "data": parsed_data
                 }, ensure_ascii=False)
             }
@@ -216,6 +255,7 @@ def get_llm_response(prompt: str) -> Generator[Dict[str, Any], None, None]:
                     "data": None
                 }, ensure_ascii=False)
             }
+            return
 
     except Exception as e:
         logger.error(f"LLM 응답 생성 실패: {str(e)}")
