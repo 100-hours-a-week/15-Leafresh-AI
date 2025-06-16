@@ -2,10 +2,10 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.status import HTTP_422_UNPROCESSABLE_ENTITY, HTTP_202_ACCEPTED, HTTP_500_INTERNAL_SERVER_ERROR
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import List, Dict, Any
-
-# Adjust the import based on your actual file structure
+from datetime import datetime
+# 실제 파일 구조에 맞게 import 경로 조정
 from ..model.feedback.LLM_feedback_model import FeedbackModel
 
 import httpx # httpx 라이브러리 임포트
@@ -13,24 +13,42 @@ import os # 환경 변수 로드를 위해 os 임포트
 
 router = APIRouter()
 
-# Define Pydantic models for the input data based on API spec
+# API 명세에 따른 입력 데이터를 위한 Pydantic 모델 정의
 class Submission(BaseModel):
-    submittedAt: str  # Changed to str to accept ISO format string
     isSuccess: bool
+    submittedAt: datetime
+
+    @field_validator('submittedAt', mode='before')
+    @classmethod
+    def parse_submitted_at(cls, v):
+        if isinstance(v, list):
+            # [년, 월, 일, 시, 분, 초, 마이크로초]
+            if len(v) == 7:
+                # 마이크로초가 999999를 초과하는 경우 조정
+                microsecond = min(v[6], 999999)
+                return datetime(v[0], v[1], v[2], v[3], v[4], v[5], microsecond)
+            return datetime(*v)
+        return v
 
 class PersonalChallenge(BaseModel):
-    # Added Optional for id and title based on API spec examples
     id: int | None = None
     title: str | None = None
     isSuccess: bool
 
 class GroupChallenge(BaseModel):
-    # Added Optional for id, title, startDate, endDate based on API spec examples
     id: int | None = None
     title: str | None = None
-    startDate: str | None = None  # Changed to str to accept ISO format string
-    endDate: str | None = None    # Changed to str to accept ISO format string
-    submissions: List[Submission] = [] 
+    startDate: datetime
+    endDate: datetime
+    submissions: List[Submission] = []
+
+    @field_validator('startDate', 'endDate', mode='before')
+    @classmethod
+    def parse_date(cls, v):
+        if isinstance(v, list):
+            # [년, 월, 일, 시, 분, 초]
+            return datetime(*v)
+        return v
 
 class FeedbackRequest(BaseModel):
     memberId: int 
@@ -57,7 +75,7 @@ async def create_feedback(request: FeedbackRequest, background_tasks: Background
             print("CALLBACK_URL_FEEDBACK 환경 변수가 설정되지 않았습니다. 피드백 결과를 전송할 수 없습니다.")
             return
 
-        callback_url = f"{CALLBACK_URL}/api/members/feedback/result"
+        callback_url = f"https://springboot.dev-leafresh.app/api/members/feedback/result"
 
         try:
             feedback_model = FeedbackModel()
