@@ -44,3 +44,6 @@ Content-Type: application/json
   "challengeName": "텀블러 사용하기",
   "challengeInfo": "텀블러 사용"
 }
+
+### 헬스체크 테스트
+GET http://localhost:7000/health
