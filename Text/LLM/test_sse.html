@@ -29,70 +29,89 @@
         }
 
         function connectBaseInfoSSE() {
-            messagesDiv.textContent = ''; // Clear previous messages
+            messagesDiv.textContent = ''; // 이전 메시지 초기화
             const sessionId = 'user123';
             const location = encodeURIComponent('도시');
             const workType = encodeURIComponent('사무직');
             const category = encodeURIComponent('디지털 탄소');
-            
+
             const url = `http://35.216.82.57:8000/ai/chatbot/recommendation/base-info?sessionId=${sessionId}&location=${location}&workType=${workType}&category=${category}`;
-            
+
             addMessage('Connecting to Base Info SSE: ' + url);
-            
+
             const eventSource = new EventSource(url);
 
             eventSource.onopen = function() {
                 addMessage('Base Info SSE Connection opened');
             };
 
-            eventSource.onmessage = function(event) {
-                addMessage('Base Info SSE Received: ' + event.data);
-            };
+            // challenge, close, error 이벤트 리스너
+            eventSource.addEventListener("challenge", function(event) {
+                addMessage('Base Info SSE (challenge): ' + event.data);
+            });
 
-            eventSource.onerror = function(error) {
-                addMessage('Base Info SSE Error: ' + JSON.stringify(error));
-                eventSource.close();
-            };
+            // close 이벤트를 받은 후에 연결 종료
+            eventSource.addEventListener("close", function(event) {
+                addMessage('Base Info SSE (close): ' + event.data);
+                eventSource.close();  // close 이벤트를 받은 후에 연결 종료
+            });
 
-            // Close connection after 30 seconds
-            setTimeout(() => {
+            // 에러가 발생하면 연결 종료
+            eventSource.addEventListener("error", function(event) {
+                addMessage('Base Info SSE (error): ' + event.data);
                 eventSource.close();
-                addMessage('Base Info SSE Connection closed after timeout');
-            }, 30000);
+            });
+
+            // 필요에 따라 주석 처리된 기본 메시지 수신 처리
+            // eventSource.onmessage = function(event) {
+            //     addMessage('Base Info SSE Received: ' + event.data);
+            // };
+
+            // 30초 후 연결 종료 (현재는 미사용)
+            // setTimeout(() => {
+            //     eventSource.close();
+            //     addMessage('Base Info SSE Connection closed after timeout');
+            // }, 30000);
         }
 
         function connectFreeTextSSE() {
-            messagesDiv.textContent = ''; // Clear previous messages
+            messagesDiv.textContent = ''; // 이전 메시지 초기화
             const sessionId = 'user123';
-            const message = encodeURIComponent('친환경 챌린지 추천해줘');
-            
+            const message = encodeURIComponent('아무거나 추천해줘');
+
             const url = `http://35.216.82.57:8000/ai/chatbot/recommendation/free-text?sessionId=${sessionId}&message=${message}`;
-            
+
             addMessage('Connecting to Free Text SSE: ' + url);
-            
+
             const eventSource = new EventSource(url);
 
             eventSource.onopen = function() {
                 addMessage('Free Text SSE Connection opened');
             };
 
-            eventSource.onmessage = function(event) {
-                addMessage('Free Text SSE Received: ' + event.data);
-            };
+            // token, complete, close, error 이벤트 리스너
+            eventSource.addEventListener("token", function(event) {
+                addMessage('Free Text SSE (token): ' + event.data);
+            });
 
-            eventSource.onerror = function(error) {
-                addMessage('Free Text SSE Error: ' + JSON.stringify(error));
-                eventSource.close();
-            };
+            eventSource.addEventListener("complete", function(event) {
+                addMessage('Free Text SSE (complete): ' + event.data);
+            });
 
-            // Close connection after 30 seconds
-            setTimeout(() => {
+            // close 이벤트를 받은 후에 연결 종료
+            eventSource.addEventListener("close", function(event) {
+                addMessage('Free Text SSE (close): ' + event.data);
+                eventSource.close();  // close 이벤트를 받은 후에 연결 종료
+            });
+
+            // 에러가 발생하면 연결 종료
+            eventSource.addEventListener("error", function(event) {
+                addMessage('Free Text SSE (error): ' + event.data);
                 eventSource.close();
-                addMessage('Free Text SSE Connection closed after timeout');
-            }, 30000);
+            });
         }
 
-        // Start connection when page loads (optional, could be triggered by button)
+        // 페이지 로딩 시 자동 연결 (버튼 클릭 시 실행 가능)
         // connectBaseInfoSSE(); 
     </script>
 </body>
