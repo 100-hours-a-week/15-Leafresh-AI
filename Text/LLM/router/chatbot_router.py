@@ -133,7 +133,7 @@ async def select_category(
                                 raise ValueError("파싱된 데이터에 'challenges' 키가 없습니다.")
 
                             yield {
-                                "event": "json",
+                                "event": "close",
                                 "data": json.dumps({
                                     "status": 200,
                                     "message": "모든 챌린지 추천 완료",
