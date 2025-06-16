@@ -266,52 +266,48 @@ async def freetext_rag(
                 event_type = data_payload.get("event")
                 data_from_llm_model = data_payload.get("data")
 
-                # If data_from_llm_model is a JSON string, parse it to dict before key access
-                if isinstance(data_from_llm_model, str):
-                    try:
-                        data_from_llm_model = json.loads(data_from_llm_model)
-                    except Exception:
-                        pass
+                if not event_type or not data_from_llm_model:
+                    continue  # 유효하지 않은 이벤트는 건너뛰기
+
+                # data_from_llm_model이 JSON 문자열인 경우 딕셔너리로 파싱 (키 접근 전)
+                # 참고: get_free_text_llm_response는 이제 모든 이벤트에 대해 JSON 문자열을 전송합니다.
+                parsed_data_payload = json.loads(data_from_llm_model) if isinstance(data_from_llm_model, str) else data_from_llm_model
 
                 if event_type == "token":
+                    # 토큰 데이터를 추출하여 full_response_text에 누적
+                    token_data = parsed_data_payload.get("data", {})
+                    token_text = token_data.get("token", "")
+                    full_response_text += token_text
+
+                    # 클라이언트에 토큰 전송 (base-info와 동일한 형식)
                     yield {
                         "event": "token",
-                        "data": json.dumps(data_from_llm_model, ensure_ascii=False)
+                        "data": json.dumps({
+                            "status": 200,
+                            "message": "토큰 생성",
+                            "data": token_text
+                        }, ensure_ascii=False)
                     }
-                    if isinstance(data_from_llm_model, dict) and "data" in data_from_llm_model and "token" in data_from_llm_model["data"]:
-                        full_response_text += data_from_llm_model["data"]["token"]
 
-                elif event_type == "complete":
-                    # 대화 기록 업데이트 (챌린지 추천 결과 전체를 저장)
+                elif event_type == "close":
+                    # 대화 기록 업데이트 (LLM 최종 응답 전체를 저장)
                     if sessionId in conversation_states:
                         conversation_states[sessionId]["messages"].append(f"AI: {full_response_text}")
-
-                    yield {
-                        "event": "complete",
-                        "data": json.dumps(data_from_llm_model, ensure_ascii=False)
-                    }
-                    parsed_data = {}
-                    try:
-                        if isinstance(data_from_llm_model, dict):
-                            parsed_data = data_from_llm_model
-                        else:
-                            parsed_data = json.loads(data_from_llm_model)
-                    except Exception:
-                        logger.warning("JSON 파싱 실패로 빈 dict 사용")
-
+                    
+                    # 최종 응답 데이터 전송 (base-info와 동일한 형식)
                     yield {
                         "event": "close",
                         "data": json.dumps({
                             "status": 200,
                             "message": "모든 응답 완료",
-                            "data": parsed_data.get("data", None)
+                            "data": parsed_data_payload.get("data", None) # 모델에서 파싱된 최종 JSON 데이터
                         }, ensure_ascii=False)
                     }
 
                 elif event_type == "error":
                     yield {
                         "event": "error",
-                        "data": json.dumps(data_from_llm_model, ensure_ascii=False)
+                        "data": data_from_llm_model # 에러 메시지는 JSON 문자열 그대로 전달
                     }
 
         except HTTPException:
