@@ -103,11 +103,11 @@ try:
     available_memory = int((gpu_memory - model_memory) * 0.9)
     logger.info(f"GPU 메모리: {gpu_memory / 1024**3:.2f}GB, 모델 예상 메모리: {model_memory / 1024**3:.2f}GB, 사용 가능 메모리: {available_memory / 1024**3:.2f}GB")
     
-    # 모델 로드 전에 한 번만 실행 (이 부분만 유지)
+    # 모델 로드 전 메모리 정리
     torch.cuda.empty_cache()
     gc.collect()
     
-    # 모델 로드
+    # 모델 로드 시 메모리 최적화 옵션 추가
     model = AutoModelForCausalLM.from_pretrained(
         "mistralai/Mistral-7B-Instruct-v0.3",  # Mistral-7B 모델 로드
         cache_dir=MODEL_PATH,  # 모델 파일을 저장할 로컬 경로
