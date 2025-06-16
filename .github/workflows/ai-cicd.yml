@@ -93,7 +93,7 @@ jobs:
 
   deploy-model:
     name: Deploy - 자체 모델
-    if: startsWith(github.ref, 'refs/tags/v') && (contains(github.ref, 'kellyn') || contains(github.ref, 'mac'))
+    if: startsWith(github.ref, 'refs/tags/v') && (contains(github.ref, 'kellyn') || contains(github.ref, 'mac')) && github.base_ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
     outputs:
       status: ${{ steps.set-status.outputs.status }}
