@@ -1,17 +1,102 @@
 from typing import List, Dict, Any, AsyncIterator
 from datetime import datetime, timedelta
-from vertexai import init
-from vertexai.preview.generative_models import GenerativeModel
 from dotenv import load_dotenv
 import os
 import traceback
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+import torch
+import json
+import logging
+from huggingface_hub import login
+import gc
+
+# 로깅 설정
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 class FeedbackModel:
     def __init__(self):
         load_dotenv()
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-        init(project=os.getenv("GOOGLE_CLOUD_PROJECT"), location=os.getenv("VERTEX_AI_LOCATION"))
-        self.model = GenerativeModel(os.getenv("VERTEX_MODEL_NAME"))
+        
+        # Hugging Face 로그인
+        hf_token = os.getenv("HUGGINGFACE_API_KEYMAC")
+        if hf_token:
+            try:
+                login(token=hf_token)
+                logger.info("Hugging Face Hub에 성공적으로 로그인했습니다.")
+            except Exception as e:
+                logger.error(f"Hugging Face Hub 로그인 실패: {e}")
+        else:
+            logger.warning("HUGGINGFACE_API_KEYMAC 환경 변수를 찾을 수 없습니다. Hugging Face 로그인 건너뜜.")
+
+        # 모델 경로 설정
+        MODEL_PATH = "/home/ubuntu/mistral"
+        logger.info(f"Model path: {MODEL_PATH}")
+
+        # GPU 사용 가능 여부 확인
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        logger.info(f"사용 가능한 디바이스: {device}")
+
+        try:
+            logger.info("Loading tokenizer...")
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                "mistralai/Mistral-7B-Instruct-v0.3",
+                cache_dir=MODEL_PATH,
+                torch_dtype=torch.float16,
+                token=hf_token
+            )
+            
+            # 패딩 토큰 설정
+            if self.tokenizer.pad_token is None:
+                self.tokenizer.pad_token = self.tokenizer.eos_token
+                self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
+
+            logger.info("Loading model...")
+            # 4비트 양자화 설정
+            quantization_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=torch.float16,
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_quant_type="fp4"
+            )
+
+            # GPU 메모리 사용량 계산
+            gpu_memory = torch.cuda.get_device_properties(0).total_memory
+            model_memory = 4 * 1024**3
+            available_memory = int((gpu_memory - model_memory) * 0.9)
+            logger.info(f"GPU 메모리: {gpu_memory / 1024**3:.2f}GB, 모델 예상 메모리: {model_memory / 1024**3:.2f}GB, 사용 가능 메모리: {available_memory / 1024**3:.2f}GB")
+            
+            # 메모리 정리
+            torch.cuda.empty_cache()
+            gc.collect()
+            
+            self.model = AutoModelForCausalLM.from_pretrained(
+                "mistralai/Mistral-7B-Instruct-v0.3",
+                cache_dir=MODEL_PATH,
+                device_map="auto",
+                low_cpu_mem_usage=True,
+                token=hf_token,
+                torch_dtype=torch.float16,
+                trust_remote_code=True,
+                max_position_embeddings=2048,
+                quantization_config=quantization_config,
+                offload_folder="offload",
+                offload_state_dict=True
+            )
+            
+            # 메모리 최적화
+            self.model.config.use_cache = False
+            self.model.eval()
+            
+        except Exception as e:
+            logger.error(f"모델 로딩 실패: {str(e)}")
+            raise Exception(f"모델 로딩 실패: {str(e)}")
+
+        logger.info("Model loaded successfully!")
+        
         # 한글 기준으로 4-5문장에 적절한 토큰 수로 조정 (약 200-250자)
         self.max_tokens = 200
         # 프롬프트 템플릿을 환경 변수에서 가져오거나 기본값 사용
@@ -106,21 +191,16 @@ class FeedbackModel:
             )
 
             try:
-                # Vertex AI를 통한 피드백 생성 (스트리밍 방식 사용 -> 비스트리밍으로 변경)
-                response = self.model.generate_content(
-                    prompt,
-                    generation_config={
-                        "temperature": 0.7,
-                        "top_p": 1,
-                        "top_k": 32,
-                        "max_output_tokens": self.max_tokens
-                    }
+                # Mistral 모델을 통한 피드백 생성
+                inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
+                outputs = self.model.generate(
+                    **inputs,
+                    max_new_tokens=self.max_tokens,
+                    temperature=0.7,
+                    do_sample=True,
+                    pad_token_id=self.tokenizer.eos_token_id
                 )
-
-                # Access the full text directly from the non-streaming response
-                full_feedback = ""
-                if response.candidates and response.candidates[0].content.parts:
-                    full_feedback = response.candidates[0].content.parts[0].text
+                full_feedback = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
 
                 if not full_feedback.strip():
                     return {
@@ -133,13 +213,13 @@ class FeedbackModel:
                     "status": 200,
                     "message": "피드백 결과 수신 완료",
                     "data": {
-                        "feedback": full_feedback
+                        "feedback": full_feedback.strip()
                     }
                 }
 
             except Exception as model_error:
                 error_trace = traceback.format_exc()
-                print(f"Model Error: {str(model_error)}\nTrace: {error_trace}")
+                logger.error(f"Model Error: {str(model_error)}\nTrace: {error_trace}")
                 return {
                     "status": 500,
                     "message": "서버 오류로 피드백 결과 저장에 실패했습니다. 잠시 후 다시 시도해주세요.",
@@ -148,7 +228,7 @@ class FeedbackModel:
 
         except Exception as e:
             error_trace = traceback.format_exc()
-            print(f"General Error: {str(e)}\nTrace: {error_trace}")
+            logger.error(f"General Error: {str(e)}\nTrace: {error_trace}")
             return {
                 "status": 500,
                 "message": "서버 오류로 피드백 결과 저장에 실패했습니다. 잠시 후 다시 시도해주세요.",
