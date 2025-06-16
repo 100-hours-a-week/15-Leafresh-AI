@@ -19,15 +19,16 @@ verifier = ImageVerifyModel()
 
 def run_worker():
     def callback(message):
-        print("callback 메시지 수신됨", message)
+        print("[CALLBACK] 메시지 수신됨", message)
         try:
             data = json.loads(message.data.decode("utf-8"))
             blob_name = data["imageUrl"].split("/")[-1]
             challenge_type = data["type"]
             challenge_id = int(data["challengeId"])
             challenge_name = data["challengeName"]
+            challenge_info = data["challengeInfo"]
 
-            result = verifier.image_verify(os.getenv("BUCKET_NAME"), blob_name, challenge_type, challenge_id, challenge_name)
+            result = verifier.image_verify(os.getenv("BUCKET_NAME"), blob_name, challenge_type, challenge_id, challenge_name, challenge_info)
             
             # 로깅용
             print(f"인증 결과: {result}")
