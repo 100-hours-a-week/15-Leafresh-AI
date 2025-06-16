@@ -300,7 +300,7 @@ SSE 응답 형식이 API 명세서와 일치하지 않는 문제가 있었습니
 - LLM 응답 생성 과정의 각 단계를 추적할 수 있어 디버깅이 용이해졌습니다.
 - 토큰 생성과 파싱 과정에서 발생하는 문제를 빠르게 파악할 수 있습니다. 
  
-# 2024-06-14 모델 메모리/SSE 속도/양자화 트러블슈팅
+# 2025-06-14 모델 메모리/SSE 속도/양자화 트러블슈팅
 
 ## 현상
 - FastAPI 기반 LLM 챗봇 서버에서 base-info SSE 응답이 매우 느리고, 메모리 사용량이 90%에 달함.
@@ -324,3 +324,271 @@ SSE 응답 형식이 API 명세서와 일치하지 않는 문제가 있었습니
 - 8bit/4bit/float16/더 작은 모델/서버 재부팅/불필요한 프로세스 종료 등 실험 권장.
 - "모든 모델이 자동으로 올라가는 것"이 아니라, 코드에서 로딩한 모델만 메모리에 올라감.
 - quantization_config 인자는 8bit/4bit 양자화 시 필수. 
+
+# 2025-06-15 모델 생성 설정 및 응답 최적화
+
+## 1. 양자화 설정 변경 (8비트 → 4비트)
+- **증상**: 8비트 양자화 시 메모리 부족 및 OOM(Out of Memory) 발생
+- **원인**: 
+  - 8비트 양자화가 float16보다 메모리를 더 많이 사용하는 경우 발생
+  - 임시 버퍼와 추가 메모리 오버헤드로 인한 문제
+  - 공식 이슈에서도 보고된 현상
+- **해결**: 4비트 양자화로 변경
+  ```python
+  # 현재 코드 (문제 있음)
+  device = "cuda" if torch.cuda.is_available() else "cpu"
+  quantization_config = BitsAndBytesConfig(
+      load_in_4bit=True,  # 4비트 양자화 활성화
+      bnb_4bit_compute_dtype=torch.float16,  # 계산은 16비트로 수행
+      bnb_4bit_use_double_quant=True,  # 이중 양자화로 메모리 추가 절약
+      bnb_4bit_quant_type="fp4"  # 4비트 부동소수점 사용 
+  )
+  ```
+- **양자화 타입 문제**:
+  - `fp4`는 CPU에서 지원되지 않음
+  - GPU에서는 `fp4`가 정상 동작
+
+## 2. 모델 응답 다양성 문제
+- **증상**: 항상 비슷한 형식의 응답만 생성
+- **원인**: `do_sample=False`로 설정되어 있어서
+- **해결**: 
+  - `do_sample=True`로 설정
+  - `temperature=0.7`로 조정
+  - 다양한 표현의 챌린지 생성 가능
+
+## 3. 메모리 최적화 설정
+- **증상**: GPU 메모리 부족 또는 느린 응답
+- **해결**:
+  ```python
+  # 스트리밍 시작 전 메모리 정리
+  torch.cuda.empty_cache()
+  gc.collect()
+  
+  # 모델 설정
+  model.config.use_cache = False  # 캐시 사용 비활성화
+  model.eval()  # 평가 모드로 설정
+  ```
+
+## 4. 토큰 생성 설정 설명
+```python
+generation_kwargs = dict(
+    inputs,  # 입력 텐서
+    streamer=streamer,  # 스트리밍 응답
+    max_new_tokens=1024,  # 최대 생성 토큰 수
+    temperature=0.7,  # 생성 다양성 (0.0~1.0)
+    do_sample=True,  # 확률적 샘플링
+    pad_token_id=tokenizer.eos_token_id  # 패딩 토큰
+)
+```
+
+## 5. 주의사항
+- `max_new_tokens`는 `max_position_embeddings`보다 작아야 함
+- `do_sample=False`로 설정하면 `temperature` 값이 무시됨
+- 메모리 부족 시 `torch.cuda.empty_cache()`와 `gc.collect()` 사용
+- 스트리밍 응답 시 `timeout=None`으로 설정하여 타임아웃 방지
+
+## 현재 상태
+- JSON 응답이 정상적으로 완성됨
+- 다양한 형식의 챌린지 생성 가능
+- 메모리 사용량 최적화
+- 스트리밍 응답 안정성 향상
+
+# 2025-06-15 SSE 이벤트 처리 및 중복 요청 트러블슈팅
+
+## 1. 빈 이벤트 전송 방지
+
+### 문제점
+- `event:null` 이벤트가 프론트엔드로 전송되는 문제 발생
+- 유효하지 않은 이벤트로 인한 프론트엔드 처리 오류
+
+### 원인 분석
+- LLM 모델에서 반환되는 이벤트 중 `event_type`이나 `data_from_llm_model`이 없는 경우가 있음
+- 이러한 빈 이벤트가 그대로 프론트엔드로 전송되어 문제 발생
+
+### 해결책
+`chatbot_router.py`의 이벤트 처리 로직 수정:
+```python
+if not event_type or not data_from_llm_model:
+    continue  # 유효하지 않은 이벤트는 건너뛰기
+```
+
+### 현재 상태
+- 빈 이벤트가 프론트엔드로 전송되지 않음
+- 프론트엔드에서 이벤트 처리가 안정적으로 동작
+- 불필요한 네트워크 트래픽 감소
+
+## 2. SSE 이벤트 중복 전송 문제
+
+### 문제점
+- `close` 이벤트가 두 번 전송되는 문제 발생
+- Spring BE 서버에서 같은 요청이 두 번 들어오는 현상 발견
+
+### 원인 분석
+1. FastAPI 서버에서 `close` 이벤트가 두 곳에서 전송됨:
+   - 파싱된 데이터와 함께 전송되는 `close` 이벤트
+   - `finally` 블록에서 전송되는 추가 `close` 이벤트
+
+2. Spring BE 서버의 SSE 처리:
+   ```java
+   public SseEmitter stream(String aiUri, Object dto) {
+       SseEmitter emitter = new SseEmitter(300_000L);
+       sseStreamExecutor.execute(emitter, () ->
+           streamHandler.streamToEmitter(emitter, uri)
+       );
+       return emitter;
+   }
+   ```
+   - `SseEmitter`가 SSE 프로토콜을 자동으로 처리
+   - FastAPI의 `EventSourceResponse`가 보내는 SSE 형식을 그대로 전달
+
+### 해결책
+2.1. FastAPI 서버 수정:
+   ```python
+   # finally 블록에서 close 이벤트 제거
+   finally:
+       # 연결 종료 이벤트는 이미 파싱된 데이터와 함께 전송되었으므로 여기서는 전송하지 않음
+       pass
+   ```
+
+2.2. 이벤트 타입 표준화:
+   - `challenge`: 토큰 생성 시점의 데이터
+   - `close`: 파싱된 최종 데이터와 함께 전송
+   - `error`: 오류 발생 시 전송
+
+### 현재 상태
+- SSE 이벤트가 한 번만 전송됨
+- Spring BE 서버에서 SSE 프로토콜이 정상적으로 처리됨
+- 클라이언트에서 이벤트를 정상적으로 수신
+
+## 3. 토큰 디코딩 오버플로우 에러
+
+### 문제점
+- LLM 모델에서 토큰 생성 중 `OverflowError: out of range integral type conversion attempted` 에러 발생
+- 토큰 디코딩 과정에서 정수형 변환 범위 초과 문제
+
+### 원인 분석
+```python
+File "/home/ubuntu/.venv/lib/python3.12/site-packages/transformers/tokenization_utils_fast.py", line 670, in _decode
+    text = self._tokenizer.decode(token_ids, skip_special_tokens=skip_special_tokens)
+OverflowError: out of range integral type conversion attempted
+```
+- 토큰 ID가 Python의 정수형 범위를 초과하는 경우 발생
+- 특히 한글과 영어가 혼합된 텍스트에서 자주 발생
+- 토큰 캐시 처리 과정에서 메모리 문제 발생 가능
+
+### 해결책
+3.1. 토큰 디코딩 설정 최적화:
+```python
+streamer = TextIteratorStreamer(
+    tokenizer,
+    skip_prompt=True,
+    skip_special_tokens=True,
+    timeout=None,
+    decode_kwargs={
+        "skip_special_tokens": True,
+        "clean_up_tokenization_spaces": True
+    }
+)
+```
+
+3.2. 토큰 캐시 관리:
+```python
+# 토큰 생성 전 메모리 정리
+torch.cuda.empty_cache()
+gc.collect()
+
+# 토큰 생성 후 메모리 정리
+if hasattr(streamer, 'token_cache'):
+    streamer.token_cache = []
+```
+
+### 현재 상태
+- 토큰 디코딩 오버플로우 에러 발생 빈도 감소
+- 메모리 사용량 최적화
+- 한글/영어 혼합 텍스트 처리 안정성 향상
+
+## 4. 메모리 관리 최적화
+
+### 문제점
+- LLM 모델 운영 중 메모리 누수 및 단편화 발생
+- 토큰 생성 과정에서 메모리 사용량 증가
+- 여러 요청 처리 시 메모리 부족 현상 발생 가능
+
+### 원인 분석
+- 모델 로드 시 이전 메모리가 정리되지 않음
+- 토큰 생성 과정에서 캐시가 계속 누적됨
+- GPU 메모리 캐시가 적절히 정리되지 않음
+
+### 해결책
+4.1. 모델 로드 시점 메모리 정리:
+```python
+# 메모리 최적화를 위한 설정
+torch.cuda.empty_cache()  # GPU 메모리 캐시 비우기
+gc.collect()  # 가비지 컬렉션 강제 실행 - 사용하지 않는 메모리 해제 및 메모리 단편화 방지
+```
+
+4.2. 답변 생성 완료 후 메모리 정리:
+```python
+# 토큰 캐시 정리
+if hasattr(streamer, 'token_cache'):
+    streamer.token_cache = []
+
+# 메모리 정리
+torch.cuda.empty_cache()
+gc.collect()
+```
+
+
+## 2025-06-16 /tmp 디스크 공간 부족으로 인한 모델 로드 실패
+
+### 문제점
+- FastAPI 서버에서 LLM 모델을 로드할 때 `[Errno 28] No space left on device` 에러가 발생하며 서버가 시작되지 않음.
+- `/tmp` 디스크가 100% 사용 중이었음.
+
+### 원인 분석
+- `/tmp`는 리눅스 시스템에서 임시 파일, 캐시, 압축 해제 파일, 소켓 등 다양한 임시 데이터를 저장하는 공간임.
+- Hugging Face transformers, PyTorch 등에서 대용량 모델을 로드할 때 모델 파일을 임시로 압축 해제하거나, 캐시 파일을 만들거나, 메모리가 부족할 때 일부 데이터를 임시로 저장할 수 있음.
+- 서버가 오래 켜져 있거나, 여러 번 모델을 로드/언로드 하다 보면 `/tmp`에 임시 파일이 쌓여 공간이 부족해질 수 있음.
+- `/tmp`가 가득 차 있으면 모델 로드/추론/캐시 생성이 실패할 수 있음.
+
+
+### 해결 과정
+1. `df -h` 명령어로 디스크 사용량을 확인하여 `/tmp`가 100% 사용 중임을 확인.
+2. `rm -rf ~/.cache/* && rm -rf /tmp/ubuntu/*` 명령어로 불필요한 캐시 및 임시 파일을 정리.
+3. 정리 후 `/tmp` 사용량이 1%로 줄고, 전체 디스크 사용량도 감소함을 확인.
+4. 이후 FastAPI 서버를 재시작하니 모델이 정상적으로 로드됨.
+
+### 실무 팁
+- 대용량 모델을 자주 다루는 서버라면 `/tmp`의 용량을 넉넉하게 잡거나, 별도의 임시 디렉토리를 지정하는 것이 좋음.
+- 모델 로드 시 `cache_dir`나 `offload_folder`를 `/tmp`가 아닌, 용량이 넉넉한 디렉토리로 지정할 수도 있음.
+- 주기적으로 `/tmp`를 정리해주는 것이 좋음.
+
+
+### 문제점
+- /base-info의 FastAPI 서버에서 SSE 스트리밍 응답 처리 중 `RuntimeError: Unexpected ASGI message 'http.response.body' sent, after response already completed` 에러 발생
+- 모델의 응답은 정상적으로 생성되고 파싱되었으나, 클라이언트로 전송하는 과정에서 문제 발생
+
+### 원인 분석
+- SSE 스트리밍이 완전히 종료되기 전에 연결이 끊어짐
+- 응답이 이미 완료된 상태에서 추가 응답을 보내려고 시도
+- 이는 주로 다음과 같은 상황에서 발생:
+  1. 클라이언트가 연결을 일찍 종료
+  2. 네트워크 연결 불안정
+  3. 서버의 응답 처리 로직이 비정상적으로 종료
+
+### 해결 과정
+```py
+        full_response = ""
+        logger.info("스트리밍 응답 대기 중...")
+        response_completed = False  # 응답 완료 여부를 추적하는 플래그
+
+        try:
+            # 스트리밍 응답 처리
+            for new_text in streamer:
+                if new_text and not response_completed:  # 응답이 완료되지 않은 경우에만 처리
+```
+1. response_completed 플래그 추가: 응답이 완료되었는지 추적
+2. 스트리밍 처리 시 response_completed 체크: 응답이 완료되지 않은 경우에만 처리
+3. 응답 완료 시점에 response_completed = True 설정
+4. 에러 발생 시에도 response_completed = True 설정
+
