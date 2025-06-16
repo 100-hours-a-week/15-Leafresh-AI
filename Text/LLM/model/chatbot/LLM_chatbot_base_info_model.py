@@ -103,6 +103,11 @@ try:
     available_memory = int((gpu_memory - model_memory) * 0.9)
     logger.info(f"GPU 메모리: {gpu_memory / 1024**3:.2f}GB, 모델 예상 메모리: {model_memory / 1024**3:.2f}GB, 사용 가능 메모리: {available_memory / 1024**3:.2f}GB")
     
+    # 모델 로드 전에 한 번만 실행 (이 부분만 유지)
+    torch.cuda.empty_cache()
+    gc.collect()
+    
+    # 모델 로드
     model = AutoModelForCausalLM.from_pretrained(
         "mistralai/Mistral-7B-Instruct-v0.3",  # Mistral-7B 모델 로드
         cache_dir=MODEL_PATH,  # 모델 파일을 저장할 로컬 경로
@@ -118,10 +123,6 @@ try:
     )
     
     # 메모리 최적화를 위한 설정
-    torch.cuda.empty_cache()  # GPU 메모리 캐시 비우기
-    gc.collect()  # 변경: 가비지 컬렉션 강제 실행 - 사용하지 않는 메모리 해제 및 메모리 단편화 방지
-    
-    # 메모리 사용량 최적화를 위한 설정
     model.config.use_cache = False  # 캐시 사용 비활성화
     model.eval()
 except Exception as e:
@@ -178,10 +179,6 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
     try:
         inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
         logger.info(f"토크나이저 입력 준비 완료. 입력 토큰 수: {inputs.input_ids.shape[1]}")
-        
-        # 스트리밍 시작 전 메모리 정리
-        torch.cuda.empty_cache()
-        gc.collect()
         
         # 스트리머 설정
         streamer = TextIteratorStreamer(
@@ -250,10 +247,6 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
             # 토큰 캐시 정리
             if hasattr(streamer, 'token_cache'):
                 streamer.token_cache = []
-            
-            # 메모리 정리
-            torch.cuda.empty_cache()
-            gc.collect()
             
             # 전체 응답 파싱
             logger.info("스트리밍 완료. 전체 응답 파싱 시작.")
