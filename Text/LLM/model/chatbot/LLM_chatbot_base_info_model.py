@@ -94,6 +94,15 @@ try:
         bnb_4bit_use_double_quant=True,  # 이중 양자화로 메모리 추가 절약
         bnb_4bit_quant_type="fp4"  # 4비트 부동소수점 사용
     )
+
+    # GPU 메모리 사용량 계산
+    gpu_memory = torch.cuda.get_device_properties(0).total_memory
+    # 4비트 양자화된 Mistral-7B 모델은 약 4GB의 메모리를 사용
+    model_memory = 4 * 1024**3  # 4GB
+    # 남은 메모리의 90%를 사용 가능하도록 설정
+    available_memory = int((gpu_memory - model_memory) * 0.9)
+    logger.info(f"GPU 메모리: {gpu_memory / 1024**3:.2f}GB, 모델 예상 메모리: {model_memory / 1024**3:.2f}GB, 사용 가능 메모리: {available_memory / 1024**3:.2f}GB")
+    
     model = AutoModelForCausalLM.from_pretrained(
         "mistralai/Mistral-7B-Instruct-v0.3",  # Mistral-7B 모델 로드
         cache_dir=MODEL_PATH,  # 모델 파일을 저장할 로컬 경로
@@ -176,11 +185,13 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
         
         # 스트리머 설정
         streamer = TextIteratorStreamer(
-            tokenizer,
-            skip_prompt=True,
-            skip_special_tokens=True,
-            timeout=None,  # 타임아웃 제거
-            decode_kwargs={"skip_special_tokens": True}
+            tokenizer, # 토큰을 텍스트로 변환하는 데 사용할 토크나이저
+            skip_prompt=True, # skip_prompt: True로 설정하면 입력 프롬프트는 스트리밍에서 제외하고 모델의 응답만 스트리밍
+            timeout=None,  # timeout: None으로 설정하여 무한정 대기 (응답이 늦어도 연결 유지)
+            decode_kwargs={ # decode_kwargs: 토큰을 텍스트로 변환할 때 사용할 추가 옵션
+                "skip_special_tokens": True, # True로 설정하여 [PAD], [CLS] 등의 특수 토큰을 제외
+                "clean_up_tokenization_spaces": True # 토큰화 공백 정리
+            }
         )
 
         # 모델 생성 설정
@@ -193,17 +204,19 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
             pad_token_id=tokenizer.eos_token_id  # 패딩 토큰 ID 설정 (Mistral은 EOS 토큰을 패딩으로 사용)
         )
         logger.info("스레드 시작 및 모델 생성 시작.")
+        
         thread = threading.Thread(target=model.generate, kwargs=generation_kwargs)
         thread.start()
 
         # 전체 응답 누적용
         full_response = ""
         logger.info("스트리밍 응답 대기 중...")
+        response_completed = False  # 응답 완료 여부를 추적하는 플래그
 
         try:
             # 스트리밍 응답 처리
             for new_text in streamer:
-                if new_text:
+                if new_text and not response_completed:  # 응답이 완료되지 않은 경우에만 처리
                     full_response += new_text
                     logger.info(f"토큰 수신: {new_text[:20]}...")
                     
@@ -233,7 +246,15 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
 
             # 스레드 완료 대기
             thread.join()
-             
+            
+            # 토큰 캐시 정리
+            if hasattr(streamer, 'token_cache'):
+                streamer.token_cache = []
+            
+            # 메모리 정리
+            torch.cuda.empty_cache()
+            gc.collect()
+            
             # 전체 응답 파싱
             logger.info("스트리밍 완료. 전체 응답 파싱 시작.")
             try:
@@ -270,6 +291,7 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                     logger.info(f"카테고리 추가 완료: {eng_label}")
 
                 # 최종 응답 전송
+                response_completed = True  # 응답 완료 플래그 설정
                 yield {
                     "event": "close",
                     "data": json.dumps({
@@ -281,6 +303,7 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
 
             except Exception as e:
                 logger.error(f"파싱 실패: {str(e)}")
+                response_completed = True  # 에러 발생 시에도 응답 완료 플래그 설정
                 yield {
                     "event": "error",
                     "data": json.dumps({
@@ -292,6 +315,7 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
 
         except Exception as e:
             logger.error(f"스트리밍 중 에러 발생: {str(e)}")
+            response_completed = True  # 에러 발생 시에도 응답 완료 플래그 설정
             yield {
                 "event": "error",
                 "data": json.dumps({
