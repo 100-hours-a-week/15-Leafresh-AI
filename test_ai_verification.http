@@ -9,6 +9,7 @@ Content-Type: application/json
   "memberId": 112,
   "challengeId": 999,
   "date": "2025-05-24",
-  "challengeName": "텀블러 사용하기 챌린지"
+  "challengeName": "텀블러 사용하기 챌린지",
+  "challengeInfo": ""
 }
 
