@@ -209,6 +209,7 @@ class FeedbackModel:
                         "data": None
                     }
 
+                callback_url = f"http://34.64.183.21:8080/api/members/feedback/result"
                 return {
                     "status": 200,
                     "message": "피드백 결과 수신 완료",
