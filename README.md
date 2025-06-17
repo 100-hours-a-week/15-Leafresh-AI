@@ -32,8 +32,8 @@ LLM Orchestration | `LangChain`, `RAG`, `VectorDB (QdrantDB)`
 
 no. | 기능 | 모델명 | 설명 | 사용 모델 
 -- | -- | -- | -- | --
-1 | 챌린지 이미지 인증 모델 | verify | 유저 인증 이미지를 기반으로 멀티모달 AI가 자동 검증 | API -> `LLaVA-13B`
-2 | 챌린지 생성 검열 모델 | censorship | 챌린지 생성 시 AI를 통해 중복/부적절 항목 필터링 | API -> `Mistral-7B`
+1 | 챌린지 이미지 인증 | verify | 유저 인증 이미지를 기반으로 AI가 자동 검증 | API -> `LLaVA-13B`
+2 | 챌린지 생성 검열 | censorship | 챌린지 생성 시 AI를 통해 중복/부적절 항목 필터링 | API -> `Mistral-7B`
 3 | 챌린지 추천 챗봇 | chatbot | 개인 취향 기반 챌린지 추천 | API -> `Mistral-7B`
 4 | 주간 피드백 생성 | feedback | 주간 챌린지 활동을 분석하여 요약 피드백 제공 | API -> `Mistral-7B`
 
@@ -54,10 +54,10 @@ Verify Model | v1.1 -> v1.2 | 75.71% -> `98.68%` | LangChain 적용, 이미지 �
 
 no. | Note | Mothod | Endpoint | Role
 -- | -- | -- | -- | --
-1 | 사진 인증 <br> : BE -> AI | POST | /ai/image/verification | 이미지 인증 요청 전송 (이미지 포함)
+1 | 사진 인증 요청 <br> : BE -> AI | POST | /ai/image/verification | 이미지 인증 요청 전송 (이미지 포함)
 2 | 인증 결과 <br> : AI -> BE | POST | /api/verifications/{verificationId}/result | AI의 인증 결과 콜백 수신 <br> (모델 추론 결과 반환)
-3 | 카테고리 기준 챌린지 추천 <br> : BE -> AI | POST | /ai/chatbot/recommendation/base-info | 선택 기반 챌린지 추천 챗봇
-4 | 자유 입력 챌린지 추천 <br> : BE -> AI | POST | /ai/chatbot/recommendation/free-text | 자연어 기반 챌린지 추천 챗봇
+3 | 카테고리 기반 추천 <br> : BE -> AI | POST | /ai/chatbot/recommendation/base-info | 선택 기반 챌린지 추천 챗봇
+4 | 자유 입력 추천 <br> : BE -> AI | POST | /ai/chatbot/recommendation/free-text | 자연어 기반 챌린지 추천 챗봇
 5 | 생성 검열 요청 <br> : BE -> AI | POST | /ai/challenges/group/validation | 챌린지 생성 요청 시, <br> 제목 유사성과 중복 여부를 기반으로 생성 가능성 판단
 6 | 주간 피드백 생성 요청 <br> : BE -> AI | POST | /ai/feedback | 사용자가 마이페이지에서 요청시, <br> 사용자 주간 데이터를 기반으로 피드백 생성
 7 | 피드백 결과 <br> : AI -> BE | POST | /api/members/feedback/result | 피드백 결과 콜백 수신 
