@@ -9,6 +9,7 @@ from langgraph.graph import StateGraph, END
 from typing import TypedDict, Annotated, Sequence, Optional, Dict, List, Generator, Any
 from Text.LLM.model.chatbot.chatbot_constants import label_mapping, ENV_KEYWORDS, BAD_WORDS
 from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer, BitsAndBytesConfig
+from transformers import LogitsProcessorList, InfNanRemoveLogitsProcessor
 import torch
 import os
 import json
@@ -92,7 +93,7 @@ try:
         load_in_4bit=True,  # 4비트 양자화 활성화
         bnb_4bit_compute_dtype=torch.float16,  # 계산은 16비트로 수행
         bnb_4bit_use_double_quant=True,  # 이중 양자화로 메모리 추가 절약
-        bnb_4bit_quant_type="fp4"  # 4비트 부동소수점 사용
+        bnb_4bit_quant_type="nf4"  # (Normalized Float 4‑bit)
     )
 
     # GPU 메모리 사용량 계산
@@ -125,6 +126,7 @@ try:
     # 메모리 최적화를 위한 설정
     model.config.use_cache = False  # 캐시 사용 비활성화
     model.eval()
+    
 except Exception as e:
     logger.error(f"모델 로딩 실패: {str(e)}")
     raise HTTPException(
@@ -140,8 +142,8 @@ logger.info("Model loaded successfully!")
 
 # base-info_response_schemas 정의
 base_response_schemas = [
-    ResponseSchema(name="recommend", description="추천 텍스트를 한 문장으로 출력해줘."),
-    ResponseSchema(name="challenges", description="추천 챌린지 리스트, 각 항목은 title, description 포함, title은 description 요약문으로 10자 이내로 작성")
+    ResponseSchema(name="recommend", description="추천 텍스트를 한글로 한 문장으로 출력해줘.(예: '이런 챌린지를 추천합니다.')"),
+    ResponseSchema(name="challenges", description="추천 챌린지 리스트, 각 항목은 title, description 포함, description은 한글로 한 문장으로 요약해주세요.")
 ]
 
 # base-info_output_parser 정의 
@@ -163,7 +165,7 @@ base_prompt = PromptTemplate(
 JSON 포맷:
 {escaped_format}
 
-반드시 위 JSON 형식 그대로 한글로 출력하세요. [/INST]</s>
+반드시 위 JSON 형식 그대로 반드시 한글로 한번만 출력하세요. [/INST]</s>
 """
 )
 
@@ -191,6 +193,11 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
             }
         )
 
+        # inf, nan 값 처리를 위한 로짓 프로세서 설정
+        logits_processor = LogitsProcessorList([
+            InfNanRemoveLogitsProcessor()
+        ])
+
         # 모델 생성 설정
         generation_kwargs = dict(
             inputs,  # 입력 텐서 (input_ids, attention_mask 등)
@@ -198,7 +205,8 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
             max_new_tokens=1024,  # 모델이 생성할 수 있는 최대 토큰 수 (JSON이 완성되도록 충분히 설정)
             temperature=0.7,  # 생성 다양성 조절 (0.0~1.0, 높을수록 더 다양한 응답)
             do_sample=True,  # 확률적 샘플링 활성화 (temperature와 함께 사용)
-            pad_token_id=tokenizer.eos_token_id  # 패딩 토큰 ID 설정 (Mistral은 EOS 토큰을 패딩으로 사용)
+            pad_token_id=tokenizer.eos_token_id, # 패딩 토큰 ID 설정 (Mistral은 EOS 토큰을 패딩으로 사용)
+            logits_processor=logits_processor  
         )
         logger.info("스레드 시작 및 모델 생성 시작.")
         
@@ -254,7 +262,7 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                 # 전체 응답 로깅
                 logger.info(f"전체 응답: {full_response}")
                 
-                # JSON 추출 및 파싱
+                # JSON 문자열 추출
                 json_match = re.search(r"```json\n([\s\S]*?)\n```", full_response.strip())
                 if json_match:
                     json_string_to_parse = json_match.group(1).strip()
@@ -266,6 +274,16 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                 if not json_string_to_parse.strip():
                     raise ValueError("JSON 문자열이 비어있습니다")
 
+                # JSON 파싱 전 문자열 정제
+                # 객체와 배열의 마지막 쉼표 제거
+                json_string_to_parse = re.sub(r',(\s*[}\]])', r'\1', json_string_to_parse)
+                # 불필요한 공백 제거
+                json_string_to_parse = re.sub(r'\s+', ' ', json_string_to_parse)
+                # 연속된 쉼표 제거
+                json_string_to_parse = re.sub(r',\s*,', ',', json_string_to_parse)
+                
+                # logger.info(f"정제된 JSON 문자열: {json_string_to_parse}")
+
                 # JSON 파싱
                 try:
                     parsed_data_temp = json.loads(json_string_to_parse)
@@ -274,6 +292,7 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                 except json.JSONDecodeError as e:
                     logger.error(f"JSON 파싱 실패: {str(e)}")
                     logger.error(f"파싱 시도한 문자열: {json_string_to_parse}")
+                    response_completed = True
                     raise
 
                 # 카테고리 정보 추가
@@ -282,17 +301,18 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                     for challenge in parsed_data["challenges"]:
                         challenge["category"] = eng_label
                     logger.info(f"카테고리 추가 완료: {eng_label}")
-
-                # 최종 응답 전송
-                response_completed = True  # 응답 완료 플래그 설정
-                yield {
-                    "event": "close",
-                    "data": json.dumps({
-                        "status": 200,
-                        "message": "모든 챌린지 추천 완료",
-                        "data": parsed_data
-                    }, ensure_ascii=False)
-                }
+                    if not response_completed:
+                        response_completed = True
+                        yield {
+                            "event": "close",
+                            "data": json.dumps({
+                                "status": 200,
+                                "message": "모든 챌린지 추천 완료",
+                                "data": parsed_data
+                            }, ensure_ascii=False)
+                        }
+                else:
+                    raise ValueError("파싱된 데이터에 'challenges' 필드가 없습니다.")
 
             except Exception as e:
                 logger.error(f"파싱 실패: {str(e)}")
@@ -327,3 +347,14 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
             "message": f"예외 발생: {str(e)}",
             "data": None
         })
+
+    finally:
+        # 요청 완료 후 메모리 정리
+        try:
+            if 'inputs' in locals():
+                del inputs
+            torch.cuda.empty_cache()
+            gc.collect()
+            logger.info("메모리 정리 완료")
+        except Exception as e:
+            logger.error(f"메모리 정리 중 에러 발생: {str(e)}")
