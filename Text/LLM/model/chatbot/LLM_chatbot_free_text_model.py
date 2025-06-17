@@ -9,6 +9,7 @@ from langgraph.graph import StateGraph, END
 from typing import TypedDict, Annotated, Sequence, Optional, Dict, List, Generator, Any
 from Text.LLM.model.chatbot.chatbot_constants import label_mapping, ENV_KEYWORDS, BAD_WORDS
 from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer, BitsAndBytesConfig
+from transformers import LogitsProcessorList, InfNanRemoveLogitsProcessor
 import torch
 import os
 import json
@@ -19,6 +20,8 @@ import logging
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_qdrant import QdrantVectorStore
 from fastapi import HTTPException
+from huggingface_hub import login
+import gc
 
 # 로깅 설정
 logging.basicConfig(
@@ -74,19 +77,37 @@ logger.info(f"사용 가능한 디바이스: {device}")
 try:
     logger.info("Loading tokenizer...")
     tokenizer = AutoTokenizer.from_pretrained(
-        "mistralai/Mistral-7B-Instruct-v0.3",
-        cache_dir=MODEL_PATH,
-        torch_dtype=torch.float16
+        "mistralai/Mistral-7B-Instruct-v0.3",  # Mistral-7B 모델의 토크나이저 로드
+        cache_dir=MODEL_PATH,  # 모델 파일을 저장할 로컬 경로
+        torch_dtype=torch.float16,  # 16비트 부동소수점 사용으로 메모리 사용량 절반으로 감소
+        token=hf_token  # Hugging Face API 토큰으로 비공개 모델 접근
     )
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token  # Mistral 모델은 기본 패딩 토큰이 없어서 EOS 토큰으로 대체
+        tokenizer.pad_token_id = tokenizer.eos_token_id
+    
     logger.info("Loading model...")
 
-    # 4비트 양자화 설정 - 모델 크기를 75% 감소시키면서 성능 유지
+    # 4비트 양자화 설정 최적화
     quantization_config = BitsAndBytesConfig(
         load_in_4bit=True,  # 4비트 양자화 활성화
         bnb_4bit_compute_dtype=torch.float16,  # 계산은 16비트로 수행
         bnb_4bit_use_double_quant=True,  # 이중 양자화로 메모리 추가 절약
-        bnb_4bit_quant_type="fp4"  # 4비트 부동소수점 사용 & GPU 환경에서만 실행되므로(Mistral 7B 모델은 GGUF가 아님)
+        bnb_4bit_quant_type="nf4"
     )
+
+    # GPU 메모리 사용량 계산
+    gpu_memory = torch.cuda.get_device_properties(0).total_memory
+    # 4비트 양자화된 Mistral-7B 모델은 약 4GB의 메모리를 사용
+    model_memory = 4 * 1024**3  # 4GB
+    # 남은 메모리의 90%를 사용 가능하도록 설정
+    available_memory = int((gpu_memory - model_memory) * 0.9)
+    logger.info(f"GPU 메모리: {gpu_memory / 1024**3:.2f}GB, 모델 예상 메모리: {model_memory / 1024**3:.2f}GB, 사용 가능 메모리: {available_memory / 1024**3:.2f}GB")
+
+    # 모델 로드 전 메모리 정리
+    torch.cuda.empty_cache()
+    gc.collect()
+
     model = AutoModelForCausalLM.from_pretrained(
         "mistralai/Mistral-7B-Instruct-v0.3",  # Mistral-7B 모델 로드
         cache_dir=MODEL_PATH,  # 모델 파일을 저장할 로컬 경로
@@ -98,9 +119,13 @@ try:
         max_position_embeddings=2048,  # 최대 입력 길이 제한
         quantization_config=quantization_config,  # 4비트 양자화 적용
         offload_folder="offload",  # 메모리 부족시 모델 일부를 디스크에 저장
-        offload_state_dict=True  # 모델 상태를 디스크에 저장하여 메모리 절약
+        offload_state_dict=True,  # 모델 상태를 디스크에 저장하여 메모리 절약
     )
     
+    # 메모리 최적화를 위한 설정
+    model.config.use_cache = False  # 캐시 사용 비활성화로 메모리 절약
+    model.eval()  # 평가 모드로 설정
+
 except Exception as e:
     logger.error(f"모델 로딩 실패: {str(e)}")
     raise HTTPException(
@@ -132,8 +157,8 @@ retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
 
 # RAG 방식 챌린지 추천을 위한 Output Parser 정의
 rag_response_schemas = [
-    ResponseSchema(name="recommend", description="추천 텍스트를 한 문장으로 출력해줘.(예: '이런 챌린지를 추천합니다.')"),
-    ResponseSchema(name="challenges", description="추천 챌린지 리스트, 각 항목은 title, description 포함, description은 한 문장으로 요약해주세요.")
+    ResponseSchema(name="recommend", description="추천 텍스트를 한글로 한 문장으로 출력해줘.(예: '이런 챌린지를 추천합니다.')"),
+    ResponseSchema(name="challenges", description="추천 챌린지 리스트, 각 항목은 title, description 포함, description은 한글로 한 문장으로 요약해주세요.")
 ]
 
 # LangChain의 StructuredOutputParser를 사용하여 JSON 포맷을 정의
@@ -164,103 +189,188 @@ custom_prompt = PromptTemplate(
 4. 출력은 반드시 아래 JSON 포맷과 동일한 구조여야 하며, 마크다운 형식으로 감싸야 합니다.
 
 출력 형식 예시:
-```json
 {escaped_format}
-```
+
 반드시 위의 json 블록 안에 전체 응답을 한글로 출력하세요.
 [/INST]</s>
 """
 )
 
-def get_llm_response(prompt: str) -> Generator[Dict[str, Any], None, None]:
+def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], None, None]:
     """LLM 응답을 SSE 형식으로 반환 (서버에서 전체 파싱 후 전달)"""
-    logger.info(f"LLM 응답 생성 시작 - 프롬프트 길이: {len(prompt)}")
+    logger.info("==== [get_llm_response] 함수 진입 ====")
+    logger.info(f"[get_llm_response]생성 시작 - 프롬프트 길이: {len(prompt)}")
     try:
+        # 메모리 정리
+        torch.cuda.empty_cache()
+        gc.collect()
+        logger.info("get_llm_response 시작 전 메모리 정리 완료")
+
         inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
         logger.info(f"토크나이저 입력 준비 완료. 입력 토큰 수: {inputs.input_ids.shape[1]}")
-        streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
+        # 스트리머 설정
+        streamer = TextIteratorStreamer(
+            tokenizer,
+            skip_prompt=True,
+            skip_special_tokens=True,
+            timeout=None,
+            decode_kwargs={
+                "skip_special_tokens": True,
+                "clean_up_tokenization_spaces": True,
+                "errors": "ignore"
+            }
+        )
+        logits_processor = LogitsProcessorList([
+            InfNanRemoveLogitsProcessor()
+        ])
 
         # 모델 생성 설정
         generation_kwargs = dict(
-            inputs,
-            streamer=streamer,
-            max_new_tokens=1024,
-            temperature=0.7,
-            do_sample=True,
-            pad_token_id=tokenizer.eos_token_id
+            inputs,  # 입력 텐서 (input_ids, attention_mask 등)
+            streamer=streamer,  # 스트리밍 응답을 위한 TextIteratorStreamer 객체
+            max_new_tokens=1024,  # 모델이 생성할 수 있는 최대 토큰 수 (JSON이 완성되도록 충분히 설정)
+            temperature=0.7,  # 생성 다양성 조절 (0.0~1.0, 높을수록 더 다양한 응답)
+            do_sample=True,  # 확률적 샘플링 활성화 (temperature와 함께 사용)
+            pad_token_id=tokenizer.eos_token_id, # 패딩 토큰 ID 설정 (Mistral은 EOS 토큰을 패딩으로 사용)
+            logits_processor=logits_processor  
         )
         logger.info("스레드 시작 및 모델 생성 시작.")
+
+        if inputs.input_ids.shape[1] > 2048:
+            raise ValueError(f"입력이 너무 깁니다. 최대 2048 토큰까지 허용됩니다. 현재: {inputs.input_ids.shape[1]} 토큰")
+
         thread = threading.Thread(target=model.generate, kwargs=generation_kwargs)
         thread.start()
 
-        # 전체 응답 누적용
+         # 전체 응답 누적용
         full_response = ""
         logger.info("스트리밍 응답 대기 중...")
-        response_completed = False # 응답 완료 여부를 추적하는 플래그
+        response_completed = False  # 응답 완료 여부를 추적하는 플래그
 
-        for new_text in streamer:
-            if new_text and not response_completed:
-                full_response += new_text
-                logger.info(f"토큰 수신: {new_text[:20]}...")
-                
-                # 토큰 정제 - 순수 텍스트만 추출
-                cleaned_text = new_text
-                # JSON 관련 문자열 제거
-                cleaned_text = re.sub(r'\"(recommend|challenges|title|description)\":\\s*(\"|\\\')?', '', cleaned_text)
-                # 마크다운 및 JSON 구조 제거
-                cleaned_text = cleaned_text.replace("```json", "").replace("```", "").strip()
-                cleaned_text = re.sub(r'[\"\\\']', '', cleaned_text)  # 따옴표 제거
-                cleaned_text = re.sub(r'[\[\]{}]', '', cleaned_text)  # 괄호 제거
-                cleaned_text = re.sub(r',\\s*$', '', cleaned_text)  # 끝의 쉼표 제거
-                # 불필요한 공백 제거
-                cleaned_text = re.sub(r'\\s+', ' ', cleaned_text)
-                cleaned_text = cleaned_text.strip()
-                
-                if cleaned_text:
-                    # SSE 응답 전송 - 순수 텍스트만 전송
-                    yield {
-                        "event": "challenge",
-                        "data": json.dumps({
-                            "status": 200,
-                            "message": "토큰 생성",
-                            "data": cleaned_text
-                        }, ensure_ascii=False)
-                    }
-
-        # 스레드 완료 대기
-        thread.join()
-        
-        # 토큰 캐시 정리
-        if hasattr(streamer, 'token_cache'):
-            streamer.token_cache = []
-        
-        # 전체 응답 파싱
-        logger.info("스트리밍 완료. 전체 응답 파싱 시작.")
-
-        # JSON 파싱 전에 마크다운 제거
-        full_response = re.sub(r"^```json\\s*|\\s*```$", "", full_response.strip())
         try:
-            parsed_data = rag_parser.parse(full_response.strip())
-            logger.info("파싱 성공. 응답 데이터 구조:")
-            logger.info(f"파싱 성공: {parsed_data}")
-            logger.info(f"- challenges 개수: {len(parsed_data.get('challenges', []))}")
-            response_completed = True # 응답 완료 플래그 설정
-            yield {
-                "event": "close",
-                "data": json.dumps({
-                    "status": 200,
-                    "message": "모든 챌린지 추천 완료",
-                    "data": parsed_data
-                }, ensure_ascii=False)
-            }
+            for new_text in streamer:
+                if new_text and not response_completed:  # 응답이 완료되지 않은 경우에만 처리
+                    full_response += new_text
+                    logger.info(f"토큰 수신: {new_text[:20]}...")
+                    
+                    # 토큰 정제 - 순수 텍스트만 추출
+                    cleaned_text = new_text
+                    # JSON 관련 문자열 제거
+                    cleaned_text = re.sub(r'"(recommend|challenges|title|description)":\s*("|\')?', '', cleaned_text)
+                    # 마크다운 및 JSON 구조 제거
+                    cleaned_text = cleaned_text.replace("```json", "").replace("```", "").strip()
+                    cleaned_text = re.sub(r'["\']', '', cleaned_text)  # 따옴표 제거
+                    cleaned_text = re.sub(r'[\[\]{}]', '', cleaned_text)  # 괄호 제거
+                    cleaned_text = re.sub(r',\s*$', '', cleaned_text)  # 끝의 쉼표 제거
+                    # 불필요한 공백 제거
+                    cleaned_text = re.sub(r'\s+', ' ', cleaned_text)
+                    cleaned_text = cleaned_text.strip()
+                    
+                    if cleaned_text:
+                        # SSE 응답 전송 - 순수 텍스트만 전송
+                        try:
+                            yield {
+                                "event": "challenge",
+                                "data": json.dumps({
+                                    "status": 200,
+                                    "message": "토큰 생성",
+                                    "data": new_text
+                                }, ensure_ascii=False)
+                            }
+                        except Exception as e:
+                            logger.error(f"이벤트 전송 중 에러 발생: {str(e)}")
+                            response_completed = True
+                            continue
+
+            # 스레드 완료 대기
+            thread.join()
+            
+            # 토큰 캐시 정리
+            if hasattr(streamer, 'token_cache'):
+                streamer.token_cache = []
+            
+            # 전체 응답 파싱
+            logger.info("스트리밍 완료. 전체 응답 파싱 시작.")
+            try:
+                # 전체 응답 로깅
+                logger.info(f"전체 응답: {full_response}")
+                
+                # JSON 문자열 추출
+                json_match = re.search(r"```json\n([\s\S]*?)\n```", full_response)
+                if json_match:
+                    json_str = json_match.group(1).strip()
+                    logger.info(f"JSON 추출: {json_str}")
+                else:
+                    # 마크다운 코드 블록이 없는 경우, 마지막 JSON 객체 찾기
+                    json_match = re.search(r'(\{[\s\S]*\})', full_response)
+                    if json_match:
+                        json_str = json_match.group(1).strip()
+                        logger.info(f"JSON 객체 추출: {json_str}")
+                    else:
+                        raise ValueError("JSON을 찾을 수 없습니다")
+
+                if not json_str.strip():
+                    raise ValueError("JSON 문자열이 비어있습니다")
+
+                # JSON 파싱 전 문자열 정제
+                # 객체와 배열의 마지막 쉼표 제거
+                json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
+                # 연속된 쉼표 제거
+                json_str = re.sub(r',\s*,', ',', json_str)
+                
+                logger.info(f"최종 정제된 JSON 문자열: {json_str}")
+
+                # JSON 파싱
+                try:
+                    parsed_data_temp = json.loads(json_str)
+                    logger.info(f"JSON 파싱 성공: {parsed_data_temp}")
+                    parsed_data = rag_parser.parse(json.dumps(parsed_data_temp))
+                    logger.info(f"파싱 성공: {parsed_data}")
+                except json.JSONDecodeError as e:
+                    logger.error(f"JSON 파싱 실패: {str(e)}")
+                    logger.error(f"파싱 시도한 문자열: {json_str}")
+                    response_completed = True  # 파싱 실패 시 플래그 설정
+                    raise
+                    
+                # 카테고리 정보 추가
+                eng_label = label_mapping[category]
+                if isinstance(parsed_data, dict) and "challenges" in parsed_data:
+                    for challenge in parsed_data["challenges"]:
+                        challenge["category"] = eng_label
+                    logger.info(f"카테고리 추가 완료: {eng_label}")
+                    if not response_completed:  # 아직 응답이 완료되지 않았다면
+                        response_completed = True 
+                        yield {
+                            "event": "close",
+                            "data": json.dumps({
+                                "status": 200,
+                                "message": "모든 챌린지 추천 완료",
+                                "data": parsed_data
+                            }, ensure_ascii=False)
+                        }
+                else:
+                    response_completed = True  # challenges 필드가 없는 경우 플래그 설정
+                    raise ValueError("파싱된 데이터에 'challenges' 필드가 없습니다.")
+                    
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON 파싱 실패: {str(e)}")
+                response_completed = True
+                yield {
+                    "event": "error",
+                    "data": json.dumps({
+                        "status": 500,
+                        "message": f"JSON 파싱 실패: {str(e)}",
+                        "data": None
+                    }, ensure_ascii=False)
+                }
         except Exception as e:
-            logger.error(f"파싱 실패: {str(e)}")
-            response_completed = True # 에러 발생 시에도 응답 완료 플래그 설정
+            logger.error(f"스트리밍 중 에러 발생: {str(e)}")
+            response_completed = True
             yield {
                 "event": "error",
                 "data": json.dumps({
                     "status": 500,
-                    "message": f"파싱 실패: {str(e)}",
+                    "message": f"LLM 응답 생성 중 예외 발생: {str(e)}",
                     "data": None
                 }, ensure_ascii=False)
             }
@@ -268,6 +378,7 @@ def get_llm_response(prompt: str) -> Generator[Dict[str, Any], None, None]:
         logger.error(f"=== 예외 발생 ===")
         logger.error(f"예외 타입: {type(e).__name__}")
         logger.error(f"예외 메시지: {str(e)}")
+        
         yield {
             "event": "error",
             "data": json.dumps({
@@ -276,6 +387,11 @@ def get_llm_response(prompt: str) -> Generator[Dict[str, Any], None, None]:
                 "data": None
             }, ensure_ascii=False)
         }
+    finally:
+        # 메모리 정리
+        torch.cuda.empty_cache()
+        gc.collect()
+        logger.info("메모리 정리 완료")
 
 # 대화 상태를 관리하기 위한 타입 정의
 class ChatState(TypedDict):
@@ -343,9 +459,11 @@ def parse_challenges_string(challenges_str: str) -> list:
     
     return challenges
 
-def format_sse_response(event: str, data: Dict[str, Any]) -> str:
-    """SSE 응답 형식으로 변환"""
-    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+def format_sse_response(event: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "event": event,
+        "data": json.dumps(data, ensure_ascii=False)
+    }
 
 def validate_query(state: ChatState) -> ChatState: # state는 챗봇의 현재 대화 상태를 담고 있는 딕셔너리
     """사용자 질문 유효성 검사"""
@@ -407,14 +525,22 @@ def generate_response(state: ChatState) -> ChatState:
         )
         
         response = ""
-        for data_payload in get_llm_response(prompt):
-            event_type = data_payload.get("event_type", "message")
-            if event_type == "token":
-                response += data_payload.get("data", "")
-            elif event_type == "error":
+        for data_payload in get_llm_response(prompt, category):
+            event = data_payload.get("event")
+            if event == "challenge":
+                # 스트리밍 데이터 처리
+                data = json.loads(data_payload.get("data", "{}"))
+                if data.get("data"):
+                    response += data["data"]
+            elif event == "error":
                 state["error"] = data_payload.get("message", "오류 발생")
                 state["should_continue"] = False
                 break
+            elif event == "close":
+                # 최종 응답 처리
+                data = json.loads(data_payload.get("data", "{}"))
+                if data.get("data"):
+                    response = json.dumps(data["data"])
         
         if state["should_continue"]:
             # 필수 필드 검증
@@ -508,48 +634,54 @@ conversation_states = {}
 
 def process_chat(sessionId: str, query: str, base_info_category: Optional[str] = None) -> str:
     """대화 처리"""
-    # 세션 상태 초기화 또는 가져오기
-    if sessionId not in conversation_states:
-        conversation_states[sessionId] = {
-            "messages": [],
-            "category": base_info_category,
-            "base_category": base_info_category
+    try:
+        # 세션 상태 초기화 또는 가져오기
+        if sessionId not in conversation_states:
+            conversation_states[sessionId] = {
+                "messages": [],
+                "category": base_info_category,
+                "base_category": base_info_category
+            }
+        
+        # 현재 상태 가져오기
+        current_state = conversation_states[sessionId]
+        
+        # 새로운 상태 생성
+        state = {
+            "messages": current_state["messages"],
+            "current_query": query,
+            "context": "",
+            "response": "",
+            "should_continue": True,
+            "error": None,
+            "docs": None,
+            "sessionId": sessionId,
+            "category": current_state["category"],
+            "base_category": current_state["base_category"]
         }
-    
-    # 현재 상태 가져오기
-    current_state = conversation_states[sessionId]
-    
-    # 새로운 상태 생성
-    state = {
-        "messages": current_state["messages"],
-        "current_query": query,
-        "context": "",
-        "response": "",
-        "should_continue": True,
-        "error": None,
-        "docs": None,
-        "sessionId": sessionId,
-        "category": current_state["category"],
-        "base_category": current_state["base_category"]
-    }
-    
-    # 대화 그래프 실행
-    result = chat_graph.invoke(state)
-    
-    # 응답이 성공적으로 생성된 경우
-    if result["should_continue"] and result["response"]:
-        # 대화 기록 업데이트
-        current_state["messages"].append(f"User: {query}")
-        current_state["messages"].append(f"Assistant: {result['response']}")
         
-        # 대화 기록이 너무 길어지면 오래된 메시지 제거
-        if len(current_state["messages"]) > 10:
-            current_state["messages"] = current_state["messages"][-10:]
+        # 대화 그래프 실행
+        result = chat_graph.invoke(state)
         
+        # 응답이 성공적으로 생성된 경우
+        if result["should_continue"] and result["response"]:
+            # 대화 기록 업데이트
+            current_state["messages"].append(f"User: {query}")
+            current_state["messages"].append(f"Assistant: {result['response']}")
+            
+            # 대화 기록이 너무 길어지면 오래된 메시지 제거
+            if len(current_state["messages"]) > 10:
+                current_state["messages"] = current_state["messages"][-10:]
+            
+            return result["response"]
+        
+        # 오류 발생 시
         return result["response"]
-    
-    # 오류 발생 시
-    return result["response"]
+    finally:
+        # 메모리 정리
+        torch.cuda.empty_cache()
+        gc.collect()
+        logger.info("process_chat 메모리 정리 완료")
 
 def clear_conversation(sessionId: str):
     """대화 기록 초기화"""
