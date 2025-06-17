@@ -32,10 +32,10 @@ LLM Orchestration | `LangChain`, `RAG`, `VectorDB (QdrantDB)`
 
 no. | 기능 | 모델명 | 설명 | 사용 모델 
 -- | -- | -- | -- | --
-1 | 챌린지 이미지 인증 모델 | verify model | 유저 인증 이미지를 기반으로 멀티모달 AI가 자동 검증 | API -> `LLaVA-13B`
-2 | 챌린지 생성 검열 모델 | censorship model | 챌린지 생성 시 AI를 통해 중복/부적절 항목 필터링 | API -> `Mistral-7B`
-3 | 챌린지 추천 챗봇 | chatbot model | 개인 취향 기반 챌린지 추천 | API -> `Mistral-7B`
-4 | 주간 피드백 생성 | feedback model | 주간 챌린지 활동을 분석하여 요약 피드백 제공 | API -> `Mistral-7B`
+1 | 챌린지 이미지 인증 모델 | verify | 유저 인증 이미지를 기반으로 멀티모달 AI가 자동 검증 | API -> `LLaVA-13B`
+2 | 챌린지 생성 검열 모델 | censorship | 챌린지 생성 시 AI를 통해 중복/부적절 항목 필터링 | API -> `Mistral-7B`
+3 | 챌린지 추천 챗봇 | chatbot | 개인 취향 기반 챌린지 추천 | API -> `Mistral-7B`
+4 | 주간 피드백 생성 | feedback | 주간 챌린지 활동을 분석하여 요약 피드백 제공 | API -> `Mistral-7B`
 
 <br>
 
@@ -61,6 +61,7 @@ no. | Note | Mothod | Endpoint | Role
 5 | 생성 검열 요청 <br> : BE -> AI | POST | /ai/challenges/group/validation | 챌린지 생성 요청 시, <br> 제목 유사성과 중복 여부를 기반으로 생성 가능성 판단
 6 | 주간 피드백 생성 요청 <br> : BE -> AI | POST | /ai/feedback | 사용자가 마이페이지에서 요청시, <br> 사용자 주간 데이터를 기반으로 피드백 생성
 7 | 피드백 결과 <br> : AI -> BE | POST | /api/members/feedback/result | 피드백 결과 콜백 수신 
+8 | (추가) 서버 헬스 체크 | GET | /health | 서버 실행 여부 판단
 
 <br>
 
