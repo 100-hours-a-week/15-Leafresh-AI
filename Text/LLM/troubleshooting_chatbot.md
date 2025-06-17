@@ -564,33 +564,7 @@ gc.collect()
 - 주기적으로 `/tmp`를 정리해주는 것이 좋음.
 
 
-### 문제점
-- /base-info의 FastAPI 서버에서 SSE 스트리밍 응답 처리 중 `RuntimeError: Unexpected ASGI message 'http.response.body' sent, after response already completed` 에러 발생
-- 모델의 응답은 정상적으로 생성되고 파싱되었으나, 클라이언트로 전송하는 과정에서 문제 발생
-
-### 원인 분석
-- SSE 스트리밍이 완전히 종료되기 전에 연결이 끊어짐
-- 응답이 이미 완료된 상태에서 추가 응답을 보내려고 시도
-- 이는 주로 다음과 같은 상황에서 발생:
-  1. 클라이언트가 연결을 일찍 종료
-  2. 네트워크 연결 불안정
-  3. 서버의 응답 처리 로직이 비정상적으로 종료
-
-### 해결 과정
-```py
-        full_response = ""
-        logger.info("스트리밍 응답 대기 중...")
-        response_completed = False  # 응답 완료 여부를 추적하는 플래그
-
-        try:
-            # 스트리밍 응답 처리
-            for new_text in streamer:
-                if new_text and not response_completed:  # 응답이 완료되지 않은 경우에만 처리
-```
-1. response_completed 플래그 추가: 응답이 완료되었는지 추적
-2. 스트리밍 처리 시 response_completed 체크: 응답이 완료되지 않은 경우에만 처리
-3. 응답 완료 시점에 response_completed = True 설정
-4. 에러 발생 시에도 response_completed = True 설정
+## 2025-06-17 SSE 연결 종료 처리 개선
 
 ### 문제점
 - LLM 모델 로딩 및 응답 생성 과정에서 불필요하게 중복된 메모리 정리 로직이 존재
@@ -655,3 +629,47 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
 - `torch.cuda.empty_cache()`와 `gc.collect()`는 필요한 시점에 한 번만 호출하는 것이 효율적임.
 - 모델 로드 시점에 메모리를 최적화하고, 이후 불필요한 호출을 자제하여 성능 오버헤드를 줄임.
 - `model.config.use_cache = False`와 같은 모델 자체의 캐시 설정을 활용하여 메모리 사용량을 관리.
+
+### 문제점
+- /base-info의 FastAPI 서버에서 SSE 스트리밍 응답 처리 중 `RuntimeError: Unexpected ASGI message 'http.response.body' sent, after response already completed` 에러 발생
+- 모델의 응답은 정상적으로 생성되고 파싱되었으나, 클라이언트로 전송하는 과정에서 문제 발생
+
+### 원인 분석
+- SSE 스트리밍이 완전히 종료되기 전에 연결이 끊어짐
+- 응답이 이미 완료된 상태에서 추가 응답을 보내려고 시도
+- 이는 주로 다음과 같은 상황에서 발생:
+  1. 클라이언트가 연결을 일찍 종료
+  2. 네트워크 연결 불안정
+  3. 서버의 응답 처리 로직이 비정상적으로 종료
+
+### 해결 과정
+1. `response_completed` 플래그 추가: 응답이 완료되었는지 추적
+2. 스트리밍 처리 시 `response_completed` 체크: 응답이 완료되지 않은 경우에만 처리
+3. 응답 완료 시점에 `response_completed = True` 설정
+4. 에러 발생 시에도 `response_completed = True` 설정
+
+```python
+full_response = ""
+logger.info("스트리밍 응답 대기 중...")
+response_completed = False  # 응답 완료 여부를 추적하는 플래그
+
+try:
+    # 스트리밍 응답 처리
+    for new_text in streamer:
+        if new_text and not response_completed:  # 응답이 완료되지 않은 경우에만 처리
+            full_response += new_text
+            logger.info(f"토큰 수신: {new_text[:20]}...")
+            
+            # ... 토큰 처리 로직 ...
+
+            if not response_completed:
+                response_completed = True
+                yield {
+                    "event": "close",
+                    "data": json.dumps({
+                        "status": 200,
+                        "message": "모든 챌린지 추천 완료",
+                        "data": parsed_data
+                    }, ensure_ascii=False)
+                }
+```
