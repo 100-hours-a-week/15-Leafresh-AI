@@ -8,11 +8,14 @@ from sse_starlette.sse import EventSourceResponse
 from typing import Optional, Dict, Any, Generator
 import json
 import re
+import logging
 from fastapi.responses import StreamingResponse
 from typing import Generator, AsyncGenerator
 import asyncio
 from urllib.parse import unquote  # URL 디코딩을 위한 import 추가
-import json
+
+# 로깅 설정
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -198,23 +201,15 @@ async def freetext_rag(
     """
     # 입력값 검증
     if not message or not message.strip():
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "status": 400,
-                "message": "message는 필수입니다.",
-                "data": None
-            }
+        return EventSourceResponse(
+            event_generator_error("message는 필수입니다.", 400),
+            media_type="text/event-stream"
         )
 
     if len(message.strip()) < 5:
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "status": 422,
-                "message": "message는 문자열이어야 하며, 최소 5자 이상의 문자열이어야 합니다.",
-                "data": None
-            }
+        return EventSourceResponse(
+            event_generator_error("message는 문자열이어야 하며, 최소 5자 이상의 문자열이어야 합니다.", 422),
+            media_type="text/event-stream"
         )
 
     message_lower = message.lower()
@@ -235,23 +230,24 @@ async def freetext_rag(
                 "category": "제로웨이스트", # 기본값
                 "base_category": "제로웨이스트"
             }
-        
+
         # fallback 조건 검사
         if not is_category_request and (not is_env_related or contains_bad_words):
+            fallback_response = {
+                "status": 200,
+                "message": "저는 친환경 챌린지를 추천해드리는 Leafresh 챗봇이에요! 환경 관련 질문을 해주시면 더 잘 도와드릴 수 있어요.",
+                "data": None
+            }
             yield {
-                "event": "fallback",
-                "data": json.dumps({
-                    "status": 200,
-                    "message": "저는 친환경 챌린지를 추천해드리는 Leafresh 챗봇이에요! 환경 관련 질문을 해주시면 더 잘 도와드릴 수 있어요.",
-                    "data": None
-                }, ensure_ascii=False)
+                "event": "error",
+                "data": json.dumps(fallback_response, ensure_ascii=False)
             }
             return # fallback 메시지 전송 후 종료
 
         # LLM 호출을 위한 프롬프트 구성
         current_category = conversation_states[sessionId].get("category", "제로웨이스트")
         messages_history = "\n".join(conversation_states[sessionId]["messages"])
-        
+
         prompt = custom_prompt.format(
             context="",  # RAG는 현재 비활성화
             query=message,
@@ -262,7 +258,7 @@ async def freetext_rag(
         # LLM 응답 스트리밍
         try:
             full_response_text = ""
-            for data_payload in get_free_text_llm_response(prompt):
+            for data_payload in get_free_text_llm_response(prompt, current_category):
                 event_type = data_payload.get("event")
                 data_from_llm_model = data_payload.get("data")
 
@@ -270,18 +266,16 @@ async def freetext_rag(
                     continue  # 유효하지 않은 이벤트는 건너뛰기
 
                 # data_from_llm_model이 JSON 문자열인 경우 딕셔너리로 파싱 (키 접근 전)
-                # 참고: get_free_text_llm_response는 이제 모든 이벤트에 대해 JSON 문자열을 전송합니다.
                 parsed_data_payload = json.loads(data_from_llm_model) if isinstance(data_from_llm_model, str) else data_from_llm_model
 
-                if event_type == "token":
+                if event_type == "challenge":
                     # 토큰 데이터를 추출하여 full_response_text에 누적
-                    token_data = parsed_data_payload.get("data", {})
-                    token_text = token_data.get("token", "")
+                    token_text = parsed_data_payload.get("data", "")
                     full_response_text += token_text
 
-                    # 클라이언트에 토큰 전송 (base-info와 동일한 형식)
+                    # 클라이언트에 토큰 전송
                     yield {
-                        "event": "token",
+                        "event": "challenge",
                         "data": json.dumps({
                             "status": 200,
                             "message": "토큰 생성",
@@ -293,36 +287,46 @@ async def freetext_rag(
                     # 대화 기록 업데이트 (LLM 최종 응답 전체를 저장)
                     if sessionId in conversation_states:
                         conversation_states[sessionId]["messages"].append(f"AI: {full_response_text}")
-                    
-                    # 최종 응답 데이터 전송 (base-info와 동일한 형식)
+
+                    # 최종 응답 데이터 전송
                     yield {
                         "event": "close",
                         "data": json.dumps({
                             "status": 200,
                             "message": "모든 응답 완료",
-                            "data": parsed_data_payload.get("data", None) # 모델에서 파싱된 최종 JSON 데이터
+                            "data": parsed_data_payload.get("data", None)
                         }, ensure_ascii=False)
                     }
 
                 elif event_type == "error":
                     yield {
                         "event": "error",
-                        "data": data_from_llm_model # 에러 메시지는 JSON 문자열 그대로 전달
+                        "data": data_from_llm_model
                     }
 
-        except HTTPException:
-            raise
         except Exception as e:
-            raise HTTPException(
-                status_code=500,
-                detail={
+            yield {
+                "event": "error",
+                "data": json.dumps({
                     "status": 500,
                     "message": f"서버 내부 오류로 추천에 실패했습니다: {str(e)}",
                     "data": None
-                }
-            )
+                }, ensure_ascii=False)
+            }
+            return
 
-    return EventSourceResponse(event_generator(), media_type="text/event-stream")  # 프로세스 종료 방지
+    return EventSourceResponse(event_generator(), media_type="text/event-stream")
+
+async def event_generator_error(message: str, status_code: int):
+    """에러 이벤트를 생성하는 제너레이터"""
+    yield {
+        "event": "error",
+        "data": json.dumps({
+            "status": status_code,
+            "message": message,
+            "data": None
+        }, ensure_ascii=False)
+    }
 
 # # 세션 초기화 엔드포인트 추가 (필요 시)
 # @router.post("/ai/chatbot/clear-conversation")
