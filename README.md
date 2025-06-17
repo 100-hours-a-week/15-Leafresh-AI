@@ -54,10 +54,10 @@ Verify Model | v1.1 -> v1.2 | 75.71% -> `98.68%` | LangChain 적용, 이미지 �
 
 no. | Note | Mothod | Endpoint | Role
 -- | -- | -- | -- | --
-1 | 사진 인증 <br> : BE -> AI | POST | /ai/image/verification | 이미지 인증 요청 전송 (이미지 포함)
+1 | 사진 인증 요청 <br> : BE -> AI | POST | /ai/image/verification | 이미지 인증 요청 전송 (이미지 포함)
 2 | 인증 결과 <br> : AI -> BE | POST | /api/verifications/{verificationId}/result | AI의 인증 결과 콜백 수신 <br> (모델 추론 결과 반환)
-3 | 카테고리 기준 챌린지 추천 <br> : BE -> AI | POST | /ai/chatbot/recommendation/base-info | 선택 기반 챌린지 추천 챗봇
-4 | 자유 입력 챌린지 추천 <br> : BE -> AI | POST | /ai/chatbot/recommendation/free-text | 자연어 기반 챌린지 추천 챗봇
+3 | 카테고리 기반 추천 <br> : BE -> AI | POST | /ai/chatbot/recommendation/base-info | 선택 기반 챌린지 추천 챗봇
+4 | 자유 입력 추천 <br> : BE -> AI | POST | /ai/chatbot/recommendation/free-text | 자연어 기반 챌린지 추천 챗봇
 5 | 생성 검열 요청 <br> : BE -> AI | POST | /ai/challenges/group/validation | 챌린지 생성 요청 시, <br> 제목 유사성과 중복 여부를 기반으로 생성 가능성 판단
 6 | 주간 피드백 생성 요청 <br> : BE -> AI | POST | /ai/feedback | 사용자가 마이페이지에서 요청시, <br> 사용자 주간 데이터를 기반으로 피드백 생성
 7 | 피드백 결과 <br> : AI -> BE | POST | /api/members/feedback/result | 피드백 결과 콜백 수신 
