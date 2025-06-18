@@ -3,8 +3,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional
 
-from model.verify.LLM_verify_model import ImageVerifyModel
-from model.verify.pubsub_helper import add_task
+from model.LLM_verify_model import ImageVerifyModel
+from model.pubsub_helper import add_task
 
 router = APIRouter()
 verifier = ImageVerifyModel()

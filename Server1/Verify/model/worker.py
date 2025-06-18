@@ -1,5 +1,5 @@
 from google.cloud import pubsub_v1
-from model.verify.LLM_verify_model import ImageVerifyModel
+from model.LLM_verify_model import ImageVerifyModel
 import json
 import requests
 

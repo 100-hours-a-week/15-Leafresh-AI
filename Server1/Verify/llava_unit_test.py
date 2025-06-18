@@ -1,4 +1,4 @@
-from model.verify.LLM_verify_model import ImageVerifyModel
+from model.LLM_verify_model import ImageVerifyModel  # LLaVA 기반 모델
 from verify_test_case import test_cases
 import pandas as pd
 from tabulate import tabulate
@@ -32,12 +32,18 @@ def tabulate_fixed(df: pd.DataFrame):
 
     return tabulate(df_fixed, headers="keys", tablefmt="pretty", showindex=False)
 
-count = 0
-# for idx, case in enumerate(test_cases, 1):
+# 테스트 반복
 for idx, case in enumerate(test_cases[0:10], start=1):
     try:
         blob_name = extract_blob_name(case["imageUrl"])
-        output = model.image_verify(BUCKET_NAME, blob_name, case["type"], case["challengeId"], case["challengeName"], case["challengeInfo"])
+        output = model.image_verify(
+            bucket_name=BUCKET_NAME,
+            blob_name=blob_name,
+            challenge_type=case["type"],
+            challenge_id=case["challengeId"],
+            challenge_name=case["challengeName"],
+            challenge_info=case["challengeInfo"]
+        )
         result_text = output.strip()
         result = result_text.startswith("예")
         
@@ -50,7 +56,7 @@ for idx, case in enumerate(test_cases[0:10], start=1):
             "Expected": case["expected"],
             "Actual": result,
             "Pass": is_pass,
-            # "LLM Output": output.strip()
+            # "LLM Output": result_text
         })
 
         if is_pass:
@@ -60,7 +66,6 @@ for idx, case in enumerate(test_cases[0:10], start=1):
 
     except Exception as e:
         print(f"[Test {idx}] 에러 발생: {e}")
-
 
 # 보고서 요약 출력
 df = pd.DataFrame(results)
@@ -74,11 +79,10 @@ true_to_false = df[(df["Expected"] == True) & (df["Actual"] == False)]
 false_to_true_rate = round((len(false_to_true) / total) * 100, 2)
 true_to_false_rate = round((len(true_to_false) / total) * 100, 2)
 
-# 실패한 테스트 목록 정리
-failed_df = df[df["Pass"] == False][["Test #", "verificationId", "challengeName", "Expected", "Actual"]] #, "LLM Output"]]
+failed_df = df[df["Pass"] == False][["Test #", "verificationId", "challengeName", "Expected", "Actual"]]
 
 print("\n" + "=" * 60)
-print("ImageVerifyModel 테스트 보고서 요약")
+print("LLaVA 기반 ImageVerifyModel 테스트 보고서 요약")
 print("=" * 60)
 print(f"  - 총 테스트 수: {total}")
 print(f"  - 통과한 테스트 수: {passed}")
@@ -94,4 +98,3 @@ else:
     print("\n모든 테스트가 통과되었습니다! \n")
 
 time.sleep(2)
-

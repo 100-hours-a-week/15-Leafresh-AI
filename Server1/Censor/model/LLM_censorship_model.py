@@ -8,41 +8,12 @@ from typing import List
 from datetime import datetime
 from collections import Counter
 
-# Mistral Model
-from transformers import AutoTokenizer, AutoModelForCausalLM
-import torch
-
 class CensorshipModel :
-    '''
     def __init__(self):
         load_dotenv()
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
         init(project="leafresh", location="us-central1")
         self.model = GenerativeModel("gemini-2.0-flash")
-    '''
-
-    def __init__(self, model_path="/home/ubuntu/mistral/models--mistralai--Mistral-7B-Instruct-v0.3/snapshots/e0bc86c23ce5aae1db576c8cca6f06f1f73af2db"):
-        load_dotenv()
-        self.tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=False)
-        self.model = AutoModelForCausalLM.from_pretrained(
-            model_path,
-            torch_dtype=torch.float16,
-            device_map="auto"
-        )
-
-    def generate_response(self, prompt: str, max_new_tokens=256) -> str:
-        inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
-        outputs = self.model.generate(
-            **inputs,
-            max_new_tokens=max_new_tokens,
-            temperature=0.3,
-            top_p=1.0,
-            top_k=32,
-            do_sample=True
-        )
-        result = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
-        print("[Model Output]", result)
-        return result.strip()
 
     def validate(self, challenge_name: str, start_date: str, end_date: str, existing: List[dict]):
         def dates_overlap(s1, e1, s2, e2):
@@ -95,24 +66,20 @@ class CensorshipModel :
         )
 
         try:
-            result = self.generate_response(prompt)
-            # result = self.model.generate_content(
-            #     prompt,
-            #     generation_config={
-            #         "temperature": 0.3,
-            #         "top_p": 1,
-            #         "top_k": 32,
-            #         "max_output_tokens": 512
-            #     }
-            # )
-            answer = result.strip().splitlines()[-1].strip().lower()
+            result = self.model.generate_content(
+                prompt,
+                generation_config={
+                    "temperature": 0.3,
+                    "top_p": 1,
+                    "top_k": 32,
+                    "max_output_tokens": 512
+                }
+            )
+            answer = result.text.strip().lower()
 
-            print("[result]\n", result)
-            print("[answer]", answer)
-
-            if answer.startswith("yes."):
+            if answer.startswith("yes"):
                 return True, "챌린지 생성이 가능합니다."
-            elif answer.startswith("no."):
+            elif answer.startswith("no"):
                 
                 for c in existing:
                     if not (c.startDate and c.endDate):

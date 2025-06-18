@@ -1,4 +1,4 @@
-from model.censorship.LLM_censorship_model import CensorshipModel
+from model.LLM_censorship_model import CensorshipModel
 import time
 from censorship_test_case import test_cases
 import pandas as pd

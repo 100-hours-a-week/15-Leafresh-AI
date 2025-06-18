@@ -12,9 +12,9 @@ from google.cloud import storage
 import tempfile                     # 임시 파일 저장용
 
 # LangChain PromptTemplate 적용
-from model.verify.event_challenge_prompt import event_challenge_prompts
-from model.verify.group_prompt_generator import get_or_create_group_prompt
-from model.verify.personal_challenge_prompt import personal_challenge_prompts
+from model.event_challenge_prompt import event_challenge_prompts
+from model.group_prompt_generator import get_or_create_group_prompt
+from model.personal_challenge_prompt import personal_challenge_prompts
 
 class ImageVerifyModel :
     def __init__(self, credential_env="GOOGLE_APPLICATION_CREDENTIALS", project_id="leafresh", region="us-central1"): 

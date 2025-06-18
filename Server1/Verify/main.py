@@ -5,7 +5,7 @@ from fastapi import FastAPI
 import threading
 from contextlib import asynccontextmanager
 
-from model.verify.worker import run_worker
+from model.worker import run_worker
 from router.verify_router import router as verify_router
 from router.health_router import router as health_router
 # from router.llava_router import router as llava_router

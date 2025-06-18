@@ -1,5 +1,5 @@
 from vertexai.preview.generative_models import GenerativeModel
-from model.verify.mongodb import insert_prompt, get_prompt_by_id, prompt_exists
+from model.mongodb import insert_prompt, get_prompt_by_id, prompt_exists
 
 def generate_group_prompt(challenge_name: str, challenge_info: str) -> str:      
     model = GenerativeModel("gemini-2.0-flash")
