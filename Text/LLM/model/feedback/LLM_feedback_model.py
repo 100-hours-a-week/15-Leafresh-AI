@@ -9,6 +9,7 @@ import json
 import logging
 from huggingface_hub import login
 import gc
+from Text.LLM.model.chatbot.shared_model import shared_model
 
 # 로깅 설정
 logging.basicConfig(
@@ -17,85 +18,21 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# 공유 모델 사용
+model = shared_model.model
+tokenizer = shared_model.tokenizer
+
+logger.info("Using shared Mistral model for feedback")
+
 class FeedbackModel:
     def __init__(self):
         load_dotenv()
         
-        # Hugging Face 로그인
-        hf_token = os.getenv("HUGGINGFACE_API_KEYMAC")
-        if hf_token:
-            try:
-                login(token=hf_token)
-                logger.info("Hugging Face Hub에 성공적으로 로그인했습니다.")
-            except Exception as e:
-                logger.error(f"Hugging Face Hub 로그인 실패: {e}")
-        else:
-            logger.warning("HUGGINGFACE_API_KEYMAC 환경 변수를 찾을 수 없습니다. Hugging Face 로그인 건너뜜.")
-
-        # 모델 경로 설정
-        MODEL_PATH = "/home/ubuntu/mistral"
-        logger.info(f"Model path: {MODEL_PATH}")
-
-        # GPU 사용 가능 여부 확인
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        logger.info(f"사용 가능한 디바이스: {device}")
-
-        try:
-            logger.info("Loading tokenizer...")
-            self.tokenizer = AutoTokenizer.from_pretrained(
-                "mistralai/Mistral-7B-Instruct-v0.3",
-                cache_dir=MODEL_PATH,
-                torch_dtype=torch.float16,
-                token=hf_token
-            )
-            
-            # 패딩 토큰 설정
-            if self.tokenizer.pad_token is None:
-                self.tokenizer.pad_token = self.tokenizer.eos_token
-                self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
-
-            logger.info("Loading model...")
-            # 4비트 양자화 설정
-            quantization_config = BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_compute_dtype=torch.float16,
-                bnb_4bit_use_double_quant=True,
-                bnb_4bit_quant_type="fp4"
-            )
-
-            # GPU 메모리 사용량 계산
-            gpu_memory = torch.cuda.get_device_properties(0).total_memory
-            model_memory = 4 * 1024**3
-            available_memory = int((gpu_memory - model_memory) * 0.9)
-            logger.info(f"GPU 메모리: {gpu_memory / 1024**3:.2f}GB, 모델 예상 메모리: {model_memory / 1024**3:.2f}GB, 사용 가능 메모리: {available_memory / 1024**3:.2f}GB")
-            
-            # 메모리 정리
-            torch.cuda.empty_cache()
-            gc.collect()
-            
-            self.model = AutoModelForCausalLM.from_pretrained(
-                "mistralai/Mistral-7B-Instruct-v0.3",
-                cache_dir=MODEL_PATH,
-                device_map="auto",
-                low_cpu_mem_usage=True,
-                token=hf_token,
-                torch_dtype=torch.float16,
-                trust_remote_code=True,
-                max_position_embeddings=2048,
-                quantization_config=quantization_config,
-                offload_folder="offload",
-                offload_state_dict=True
-            )
-            
-            # 메모리 최적화
-            self.model.config.use_cache = False
-            self.model.eval()
-            
-        except Exception as e:
-            logger.error(f"모델 로딩 실패: {str(e)}")
-            raise Exception(f"모델 로딩 실패: {str(e)}")
-
-        logger.info("Model loaded successfully!")
+        # 공유 모델 사용으로 변경
+        self.model = model
+        self.tokenizer = tokenizer
+        
+        logger.info("Feedback model initialized with shared model")
         
         # 한글 기준으로 4-5문장에 적절한 토큰 수로 조정 (약 200-250자)
         self.max_tokens = 200
@@ -165,6 +102,14 @@ class FeedbackModel:
 
     async def generate_feedback(self, data: Dict[str, Any]) -> Dict[str, Any]:
         try:
+            # 메모리 정리
+            """
+            이전 요청의 메모리 잔여물 정리: 다른 요청에서 사용한 메모리가 남아있을 수 있음
+            깨끗한 상태에서 시작: 새로운 피드백 생성 전에 메모리를 정리하여 안정성 확보
+            메모리 단편화 방지: 연속 요청 시 메모리 단편화 문제 해결
+            """
+            shared_model.cleanup_memory()
+            
             # 입력 데이터 검증
             if data.get("memberId") is None:  # 0도 유효한 값으로 처리
                 return {
@@ -235,3 +180,8 @@ class FeedbackModel:
                 "message": "서버 오류로 피드백 결과 저장에 실패했습니다. 잠시 후 다시 시도해주세요.",
                 "data": None
             }
+        finally:
+            # 메모리 정리
+            # 성공/실패 관계없이 항상 메모리 정리 실행
+            shared_model.cleanup_memory()
+            logger.info("Feedback model memory cleanup completed")
