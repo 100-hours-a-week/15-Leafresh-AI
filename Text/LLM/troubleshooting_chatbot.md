@@ -299,7 +299,7 @@ SSE 응답 형식이 API 명세서와 일치하지 않는 문제가 있었습니
 - `free-text` 엔드포인트에서도 `base-info`와 동일한 수준의 상세 로깅이 가능합니다.
 - LLM 응답 생성 과정의 각 단계를 추적할 수 있어 디버깅이 용이해졌습니다.
 - 토큰 생성과 파싱 과정에서 발생하는 문제를 빠르게 파악할 수 있습니다. 
- 
+
 # 2025-06-14 모델 메모리/SSE 속도/양자화 트러블슈팅
 
 ## 현상
@@ -338,15 +338,12 @@ SSE 응답 형식이 API 명세서와 일치하지 않는 문제가 있었습니
   # 현재 코드 (문제 있음)
   device = "cuda" if torch.cuda.is_available() else "cpu"
   quantization_config = BitsAndBytesConfig(
-      load_in_4bit=True,  # 4비트 양자화 활성화
-      bnb_4bit_compute_dtype=torch.float16,  # 계산은 16비트로 수행
-      bnb_4bit_use_double_quant=True,  # 이중 양자화로 메모리 추가 절약
-      bnb_4bit_quant_type="fp4"  # 4비트 부동소수점 사용 
+      load_in_4bit=True,
+      bnb_4bit_compute_dtype=torch.float16,
+      bnb_4bit_use_double_quant=True,
+      bnb_4bit_quant_type="nf4"  # fp4에서 nf4로 변경
   )
   ```
-- **양자화 타입 문제**:
-  - `fp4`는 CPU에서 지원되지 않음
-  - GPU에서는 `fp4`가 정상 동작
 
 ## 2. 모델 응답 다양성 문제
 - **증상**: 항상 비슷한 형식의 응답만 생성
@@ -468,6 +465,7 @@ if not event_type or not data_from_llm_model:
 
 ### 원인 분석
 ```python
+# 오류 발생 위치
 File "/home/ubuntu/.venv/lib/python3.12/site-packages/transformers/tokenization_utils_fast.py", line 670, in _decode
     text = self._tokenizer.decode(token_ids, skip_special_tokens=skip_special_tokens)
 OverflowError: out of range integral type conversion attempted
@@ -477,7 +475,7 @@ OverflowError: out of range integral type conversion attempted
 - 토큰 캐시 처리 과정에서 메모리 문제 발생 가능
 
 ### 해결책
-3.1. 토큰 디코딩 설정 최적화:
+1. **토큰 디코딩 설정 최적화**:
 ```python
 streamer = TextIteratorStreamer(
     tokenizer,
@@ -491,7 +489,7 @@ streamer = TextIteratorStreamer(
 )
 ```
 
-3.2. 토큰 캐시 관리:
+2. **토큰 캐시 관리**:
 ```python
 # 토큰 생성 전 메모리 정리
 torch.cuda.empty_cache()
@@ -532,12 +530,7 @@ gc.collect()  # 가비지 컬렉션 강제 실행 - 사용하지 않는 메모�
 # 토큰 캐시 정리
 if hasattr(streamer, 'token_cache'):
     streamer.token_cache = []
-
-# 메모리 정리
-torch.cuda.empty_cache()
-gc.collect()
 ```
-
 
 ## 2025-06-16 /tmp 디스크 공간 부족으로 인한 모델 로드 실패
 
@@ -551,7 +544,6 @@ gc.collect()
 - 서버가 오래 켜져 있거나, 여러 번 모델을 로드/언로드 하다 보면 `/tmp`에 임시 파일이 쌓여 공간이 부족해질 수 있음.
 - `/tmp`가 가득 차 있으면 모델 로드/추론/캐시 생성이 실패할 수 있음.
 
-
 ### 해결 과정
 1. `df -h` 명령어로 디스크 사용량을 확인하여 `/tmp`가 100% 사용 중임을 확인.
 2. `rm -rf ~/.cache/* && rm -rf /tmp/ubuntu/*` 명령어로 불필요한 캐시 및 임시 파일을 정리.
@@ -562,7 +554,6 @@ gc.collect()
 - 대용량 모델을 자주 다루는 서버라면 `/tmp`의 용량을 넉넉하게 잡거나, 별도의 임시 디렉토리를 지정하는 것이 좋음.
 - 모델 로드 시 `cache_dir`나 `offload_folder`를 `/tmp`가 아닌, 용량이 넉넉한 디렉토리로 지정할 수도 있음.
 - 주기적으로 `/tmp`를 정리해주는 것이 좋음.
-
 
 ## 2025-06-17 SSE 연결 종료 처리 개선
 
@@ -587,9 +578,9 @@ model = AutoModelForCausalLM.from_pretrained(
     "mistralai/Mistral-7B-Instruct-v0.3",
     cache_dir=MODEL_PATH,
     device_map="auto",
+    torch_dtype=torch.float16,
     low_cpu_mem_usage=True,
     token=hf_token,
-    torch_dtype=torch.float16,
     trust_remote_code=True,
     max_position_embeddings=2048,
     quantization_config=quantization_config,
@@ -673,3 +664,713 @@ try:
                     }, ensure_ascii=False)
                 }
 ```
+
+## 코드 최적화 및 안정성 개선
+
+### 1. 양자화 설정 변경 (fp4 → nf4)
+- **증상**: fp4 양자화 타입이 CPU에서 지원되지 않는 문제 발생
+- **원인**: fp4는 GPU 전용 양자화 타입으로, CPU 환경에서 오류 발생
+- **해결**: nf4(Normal Float 4) 양자화 타입으로 변경
+  ```python
+  quantization_config = BitsAndBytesConfig(
+      load_in_4bit=True,
+      bnb_4bit_compute_dtype=torch.float16,
+      bnb_4bit_use_double_quant=True,
+      bnb_4bit_quant_type="nf4"  # fp4에서 nf4로 변경
+  )
+  ```
+
+### 2. 메모리 관리 개선
+- **증상**: 메모리 누수 및 불필요한 메모리 정리로 인한 성능 저하
+- **해결**: finally 블록 추가로 메모리 정리 로직 통합
+  ```python
+  finally:
+      # 요청 완료 후 메모리 정리
+      try:
+          if 'inputs' in locals():
+              del inputs
+          torch.cuda.empty_cache()
+          gc.collect()
+          logger.info("메모리 정리 완료")
+      except Exception as e:
+          logger.error(f"메모리 정리 중 에러 발생: {str(e)}")
+  ```
+
+### 3. /free-text 엔드포인트 비동기 전환
+- **증상**: 동기 처리로 인한 응답 지연
+- **해결**: async/await 패턴으로 비동기 처리 전환
+  ```python
+  @router.get("/ai/chatbot/recommendation/free-text")
+  async def freetext_rag(
+      sessionId: Optional[str] = Query(None),
+      message: Optional[str] = Query(None)
+  ):
+      # 비동기 처리 로직 구현
+  ```
+
+### 4. 파싱 로직 개선 및 스트리밍 안정화
+- **증상**: JSON 파싱 오류 및 스트리밍 데이터 처리 문제, inf/nan 값 발생, event: token → challenge로 이벤트 타입 변경 필요
+- **해결**:
+  1. 스트리머 설정 최적화
+  2. inf/nan 값 처리를 위한 로짓 프로세서 추가
+  3. event: token → challenge로 이벤트 타입 변경
+  ```python
+  # 로짓 프로세서 설정
+  logits_processor = LogitsProcessorList([
+      InfNanRemoveLogitsProcessor()
+  ])
+  
+  # 스트리머 설정
+  streamer = TextIteratorStreamer(
+      tokenizer,
+      skip_prompt=True,
+      skip_special_tokens=True,
+      timeout=None,
+      decode_kwargs={
+          "skip_special_tokens": True,
+          "clean_up_tokenization_spaces": True,
+          "errors": "ignore"
+      }
+  )
+  ```
+
+### 현재 상태
+- 양자화 설정이 CPU/GPU 환경 모두에서 안정적으로 동작
+- 메모리 관리가 효율적으로 이루어짐
+- /free-text 엔드포인트의 응답 속도 개선
+- JSON 파싱 및 스트리밍 데이터 처리 안정성 향상
+- inf/nan 값으로 인한 오류 발생 빈도 감소
+
+# 2025-06-18 
+# 공유 모델 구현 및 메모리 최적화
+
+## 1. 메모리 중복 사용 문제 해결
+
+### 문제점
+- 두 엔드포인트(`/base-info`, `/free-text`)가 각각 독립적으로 모델을 로드
+- 각각 4GB씩 사용하여 총 8GB 메모리 사용 (L4 GPU 24GB 중 33% 사용)
+- 연속 요청 시 메모리 부족으로 CUDA Out of Memory 오류 발생
+- 첫 번째 요청 후 메모리가 제대로 정리되지 않아 두 번째 요청 시 문제 발생
+
+### 원인 분석
+```python
+# 기존 구조 (문제 있음)
+# LLM_chatbot_base_info_model.py: 모델 로드 (4GB)
+# LLM_chatbot_free_text_model.py: 또 다른 모델 로드 (4GB)
+# 총 8GB 사용
+```
+
+### 해결책
+**싱글톤 패턴의 공유 모델 구현**:
+1. `Text/LLM/model/chatbot/shared_model.py` 생성
+2. `SharedMistralModel` 클래스로 싱글톤 패턴 구현
+3. 두 엔드포인트가 같은 모델 인스턴스를 공유
+
+```python
+class SharedMistralModel:
+    _instance = None
+    _model = None
+    _tokenizer = None
+    _initialized = False
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(SharedMistralModel, cls).__new__(cls)
+        return cls._instance
+    
+    def __init__(self):
+        if not self._initialized:
+            self._initialize_model()
+            self._initialized = True
+```
+
+## 2. 8비트 vs 4비트 양자화 실험
+
+### 8비트 양자화 시도
+```python
+quantization_config = BitsAndBytesConfig(
+    load_in_8bit=True,
+    llm_int8_threshold=6.0,
+    llm_int8_has_fp16_weight=True,
+    llm_int8_enable_fp32_cpu_offload=True
+)
+```
+
+### 문제점
+- GPU 메모리 부족으로 CPU/디스크 오프로드 필요
+- 오류: "Some modules are dispatched on the CPU or the disk"
+- L4 GPU에서 8GB 모델 + 임시 버퍼로 인한 메모리 부족
+
+### 최종 결정: 4비트 양자화 유지
+```python
+quantization_config = BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_compute_dtype=torch.float16,
+    bnb_4bit_use_double_quant=True,
+    bnb_4bit_quant_type="nf4"
+)
+```
+
+## 3. 코드 리팩토링
+
+### 3.1. 중복 코드 제거
+- `LLM_chatbot_base_info_model.py`에서 모델 로딩 코드 제거
+- `LLM_chatbot_free_text_model.py`에서 모델 로딩 코드 제거
+- 공유 모델 사용으로 변경
+
+```python
+# 변경 전
+# 각 파일에서 독립적으로 모델 로드
+
+# 변경 후
+from Text.LLM.model.chatbot.shared_model import shared_model
+model = shared_model.model
+tokenizer = shared_model.tokenizer
+```
+
+### 3.2. 메모리 정리 통합
+```python
+def cleanup_memory(self):
+    """메모리 정리"""
+    try:
+        torch.cuda.empty_cache()
+        gc.collect()
+        logger.info("Shared model memory cleanup completed")
+    except Exception as e:
+        logger.error(f"Memory cleanup error: {str(e)}")
+```
+
+## 4. 성능 개선 효과
+
+### 메모리 사용량
+- **기존**: 8GB (두 개 모델)
+- **개선 후**: 4GB (하나의 공유 모델)
+- **절약**: 50% 메모리 절약
+
+### 안정성
+- 연속 요청 시 메모리 부족 오류 해결
+- CUDA 메모리 단편화 문제 감소
+- 서버 재시작 없이도 안정적인 운영 가능
+
+### 유지보수성
+- 모델 설정 변경 시 한 곳에서만 수정
+- 코드 중복 제거
+- 일관된 메모리 관리
+
+# 토큰 제한 및 대화 기록 최적화
+
+## 1. 입력 토큰 제한 초과 문제
+
+### 문제점
+- 사용자 입력이 모델의 최대 토큰 제한(2048)을 초과하는 경우 발생
+- 오류: "입력이 너무 깁니다. 최대 2048 토큰까지 허용됩니다. 현재: XXXX 토큰"
+- 대화 기록이 누적되면서 토큰 수가 급격히 증가
+
+### 원인 분석
+- Mistral-7B 모델의 `max_position_embeddings=2048` 설정
+- 대화 기록이 계속 누적되어 토큰 수 증가
+- 프롬프트 템플릿에 컨텍스트, 쿼리, 메시지 히스토리가 모두 포함
+
+### 해결책
+1. **동적 토큰 수 체크 및 대화 기록 조정**:
+```python
+# 토큰 수 체크 및 대화 기록 조정
+messages = current_state["messages"]
+while len(messages) > 2:  # 최소 1번의 대화는 유지
+    # 현재 메시지들로 프롬프트 구성
+    test_messages = "\n".join(messages)
+    test_prompt = custom_prompt.format(
+        context="",
+        query=query,
+        messages=test_messages,
+        category=current_state["category"]
+    )
+    
+    # 토큰 수 체크
+    test_inputs = tokenizer(test_prompt, return_tensors="pt")
+    if test_inputs.input_ids.shape[1] <= 1800:  # 여유를 두고 1800 토큰으로 제한
+        break
+    
+    # 토큰 수가 많으면 가장 오래된 대화 제거 (2개씩: User + Assistant)
+    messages = messages[2:]
+```
+
+2. **대화 기록 제한 강화**:
+```python
+# 대화 기록이 너무 길어지면 오래된 메시지 제거 (더 엄격하게 제한)
+if len(current_state["messages"]) > 6:  # 10개에서 6개로 줄임 (3번의 대화)
+    current_state["messages"] = current_state["messages"][-6:]
+```
+
+## 2. 프론트엔드 요청 인코딩 문제
+
+### 문제점
+- 프론트엔드에서 "아무거나 추천" 같은 요청이 fallback 메시지로 처리됨
+- 예상: LLM 응답
+- 실제: "저는 친환경 챌린지를 추천해드리는 Leafresh 챗봇이에요!..."
+
+### 원인 분석
+- 프론트엔드 요청이 이중 URL 인코딩되어 전송됨
+- `ENV_KEYWORDS` 체크에서 "아무거나"가 인식되지 않음
+- fallback 로직이 잘못 트리거됨
+
+### 해결책
+1. **URL 디코딩 추가**(/free-text):
+```python
+from urllib.parse import unquote  # URL 디코딩을 위한 import 추가
+
+# URL 디코딩 추가
+if message:
+    message = unquote(message)
+```
+
+2. **환경 키워드 확장**:
+```python
+ENV_KEYWORDS = [
+    # 기존 키워드들...
+    "아무거나", "무엇", "뭐", "추천", "추천해", "추천해줘",
+    "환경", "친환경", "지구", "탄소", "배출", "절약", "재활용",
+    "플라스틱", "일회용", "에너지", "전기", "물", "음식물",
+    "교통", "대중교통", "자전거", "도보", "카풀", "전기차",
+    "비건", "채식", "로컬", "유기농", "제로웨이스트", "미니멀",
+    "업사이클", "리사이클", "컴포스트", "텀블러", "장바구니",
+    "친환경", "지속가능", "탄소중립", "기후변화", "오염",
+    "자연", "생태", "보호", "보존", "청결", "깨끗"
+]
+```
+
+## 3. SSE 이벤트 처리 개선
+
+### 문제점
+- 스트리밍 응답 중 불필요한 토큰 정제로 인한 데이터 손실
+- JSON 구조 제거 과정에서 실제 내용까지 제거되는 문제
+
+### 해결책
+**토큰 정제 로직 개선**:
+```python
+# 토큰 정제 - 순수 텍스트만 추출
+cleaned_text = new_text
+# JSON 관련 문자열 제거
+cleaned_text = re.sub(r'"(recommend|challenges|title|description)":\s*("|\')?', '', cleaned_text)
+# 마크다운 및 JSON 구조 제거
+cleaned_text = cleaned_text.replace("```json", "").replace("```", "").strip()
+cleaned_text = re.sub(r'["\']', '', cleaned_text)  # 따옴표 제거
+cleaned_text = re.sub(r'[\[\]{}]', '', cleaned_text)  # 괄호 제거
+cleaned_text = re.sub(r',\s*$', '', cleaned_text)  # 끝의 쉼표 제거
+# 불필요한 공백 제거
+cleaned_text = re.sub(r'\s+', ' ', cleaned_text)
+cleaned_text = cleaned_text.strip()
+```
+
+## 4. 로깅 및 디버깅 개선
+
+### 추가된 로깅
+1. **토큰 수 체크 로깅**:
+```python
+logger.info(f"토크나이저 입력 준비 완료. 입력 토큰 수: {inputs.input_ids.shape[1]}")
+```
+
+2. **대화 기록 조정 로깅**:
+```python
+logger.info(f"대화 기록 조정: {len(messages)}개 메시지 유지")
+```
+
+3. **URL 디코딩 로깅**:
+```python
+logger.info(f"원본 메시지: {message}")
+logger.info(f"디코딩된 메시지: {unquote(message)}")
+```
+
+## 5. 성능 최적화 효과
+
+### 토큰 관리
+- 동적 토큰 수 체크로 메모리 효율성 향상
+- 대화 기록 제한으로 응답 속도 개선
+- 안전한 토큰 제한(1800)으로 오류 방지
+
+### 사용자 경험
+- URL 인코딩 문제 해결로 자연스러운 대화 가능
+- 환경 키워드 확장으로 더 많은 쿼리 인식
+- fallback 로직 정확성 향상
+
+### 안정성
+- 토큰 제한 초과 오류 방지
+- 메모리 사용량 예측 가능
+- 일관된 응답 품질 유지
+
+## 현재 상태
+- 토큰 제한 문제 완전 해결
+- 프론트엔드 요청 정상 처리
+- 대화 기록 최적화로 성능 향상
+- 로깅 개선으로 디버깅 용이성 증대
+
+# challenges 파싱 오류 해결
+
+## 1. challenges 문자열 파싱 문제
+
+### 문제점
+- LLM 응답에서 `challenges` 필드가 문자열로 파싱되는 경우 발생
+- 오류: `'str' object does not support item assignment`
+- JSON 파싱은 성공했지만 challenges를 리스트로 변환하지 않고 딕셔너리로 접근 시도
+
+### 원인 분석
+```python
+# 로그에서 확인된 문제
+"challenges": "[\n    {\n        \"title\": \"전기차 소비 챌린지\",\n        \"description\": \"...\"\n    }\n]"
+```
+- `challenges` 필드가 JSON 문자열로 파싱됨
+- 이를 리스트로 변환하지 않고 바로 딕셔너리로 접근하려고 시도
+- `for challenge in parsed_data["challenges"]:`에서 오류 발생
+
+### 해결책
+1. **challenges 문자열 감지 및 변환**:
+```python
+# challenges가 문자열인 경우 리스트로 변환
+if isinstance(parsed_data["challenges"], str):
+    challenges_list = parse_challenges_string(parsed_data["challenges"])
+    parsed_data["challenges"] = challenges_list
+    logger.info(f"challenges 문자열을 리스트로 변환 완료: {len(challenges_list)}개 챌린지")
+```
+
+2. **타입 검증 강화**:
+```python
+# challenges가 리스트인지 확인
+if isinstance(parsed_data["challenges"], list):
+    for challenge in parsed_data["challenges"]:
+        challenge["category"] = eng_label
+```
+
+3. **parse_challenges_string 함수 활용**:
+```python
+def parse_challenges_string(challenges_str: str) -> list:
+    """challenges 문자열을 파싱하여 리스트로 변환"""
+    # 이미 리스트인 경우 그대로 반환
+    if isinstance(challenges_str, list):
+        return challenges_str
+    
+    # JSON 파싱 시도
+    try:
+        return json.loads(challenges_str)
+    except:
+        pass
+    
+    # 문자열 파싱 로직...
+    return challenges
+```
+
+## 2. JSON 파싱 최적화
+
+### 문제점
+- `json.loads(response)`를 여러 번 호출하면서 딕셔너리를 수정하려고 시도
+- 불필요한 JSON 파싱으로 인한 성능 저하
+
+### 해결책
+```python
+# JSON 응답을 한 번만 파싱
+response_data = json.loads(response)
+
+# 필수 필드 검증
+if "recommend" not in response_data or "challenges" not in response_data:
+    raise ValueError("응답에 필수 필드가 없습니다.")
+
+# challenges가 문자열인 경우 배열로 변환
+if isinstance(response_data.get("challenges"), str):
+    challenges = parse_challenges_string(response_data["challenges"])
+    response_data["challenges"] = challenges
+```
+
+## 3. 성능 최적화 효과
+
+### 안전성
+- 타입 검증으로 런타임 오류 방지
+- 다양한 형태의 challenges 응답 처리 가능
+- 기존 `parse_challenges_string` 함수 재활용으로 코드 일관성 유지
+
+### 디버깅
+- 상세한 로깅으로 디버깅 용이성 향상
+- challenges 변환 과정 추적 가능
+- 오류 발생 시 명확한 원인 파악 가능
+
+# 2025-06-18 토큰 디코딩 오버플로우 에러 강화 처리
+
+## 1. OverflowError 재발생 문제
+
+### 문제점
+- 토큰 디코딩 과정에서 `OverflowError: out of range integral type conversion attempted` 오류 재발생
+- 스레드가 완전히 중단되어 응답 처리가 불가능한 상황
+- 한글과 영어가 혼합된 텍스트에서 자주 발생하는 문제
+
+### 원인 분석
+```python
+# 오류 발생 위치
+File "/home/ubuntu/.venv/lib/python3.12/site-packages/transformers/tokenization_utils_fast.py", line 670, in _decode
+    text = self._tokenizer.decode(token_ids, skip_special_tokens=skip_special_tokens)
+OverflowError: out of range integral type conversion attempted
+```
+- 토큰 ID가 Python의 정수형 범위를 초과하는 경우 발생
+- 특히 한글과 영어가 혼합된 텍스트에서 자주 발생
+- 토큰 캐시 처리 과정에서 메모리 문제 발생 가능
+
+### 해결책
+1. **토큰 디코딩 설정 최적화**:
+```python
+streamer = TextIteratorStreamer(
+    tokenizer,
+    skip_prompt=True,
+    skip_special_tokens=True,
+    timeout=None,
+    decode_kwargs={
+        "skip_special_tokens": True,
+        "clean_up_tokenization_spaces": True
+    }
+)
+```
+
+2. **토큰 캐시 관리**:
+```python
+# 토큰 생성 전 메모리 정리
+torch.cuda.empty_cache()
+gc.collect()
+
+# 토큰 생성 후 메모리 정리
+if hasattr(streamer, 'token_cache'):
+    streamer.token_cache = []
+```
+
+### 현재 상태
+- 토큰 디코딩 오버플로우 에러 발생 빈도 감소
+- 메모리 사용량 최적화
+- 한글/영어 혼합 텍스트 처리 안정성 향상
+
+## 2. 스트리밍 안정성 개선
+
+### 문제점
+- 오버플로우 에러 발생 시 스레드가 완전히 중단됨
+- 현재까지 수집된 응답도 손실되는 문제
+- 사용자에게 빈 응답 또는 오류만 전달됨
+
+### 해결책
+1. **부분 응답 처리**:
+- 오버플로우 에러 발생 시 현재까지 수집된 응답을 활용
+- 완전한 JSON이 아니어도 가능한 부분까지 파싱 시도
+- 사용자에게 의미 있는 응답 제공
+
+2. **에러 복구 메커니즘**:
+```python
+# 스레드 완료 대기
+thread.join()
+
+# 토큰 캐시 정리
+if hasattr(streamer, 'token_cache'):
+    streamer.token_cache = []
+
+# 전체 응답 파싱 (오버플로우 에러가 발생해도 현재까지의 응답 처리)
+if full_response and not response_completed:
+    # ... 응답 처리 로직 ...
+```
+
+## 3. 로깅 개선
+
+### 추가된 로깅
+1. **오버플로우 에러 로깅**:
+```python
+logger.error(f"토큰 디코딩 오버플로우 에러 발생: {str(e)}")
+logger.info("오버플로우 에러로 인해 스트리밍을 중단하고 현재까지의 응답을 처리합니다.")
+```
+
+2. **응답 파싱 에러 로깅**:
+```python
+logger.error(f"응답 파싱 중 에러 발생: {str(e)}")
+```
+
+## 4. 성능 최적화 효과
+
+### 안정성
+- 오버플로우 에러 발생 시에도 부분 응답 처리 가능
+- 스레드 중단 없이 안정적인 응답 생성
+- 사용자 경험 개선
+
+### 복구 능력
+- 토큰 디코딩 실패 시에도 현재까지의 응답 활용
+- 완전한 JSON이 아니어도 가능한 부분까지 파싱
+- 에러 발생 시에도 의미 있는 응답 제공
+
+### 메모리 관리
+- 토큰 캐시 정리로 메모리 누수 방지
+- 스레드 완료 대기로 리소스 정리 보장
+- 안정적인 메모리 사용
+
+## 현재 상태
+- 오버플로우 에러 완전 처리
+- 부분 응답 처리로 안정성 향상
+- 사용자 경험 개선
+- 메모리 관리 최적화
+
+# feedback 모델 공유 모델 적용
+
+## 1. Feedback 모델 메모리 중복 사용 문제
+
+### 문제점
+- Feedback 모델이 독립적으로 모델을 로드하여 메모리 중복 사용
+- 기존: Chatbot 모델들 (8GB) + Feedback 모델 (4GB) = 총 12GB 메모리 사용
+- L4 GPU 24GB 중 50% 사용으로 메모리 부족 위험 증가
+- 연속 요청 시 메모리 부족으로 CUDA Out of Memory 오류 발생 가능
+
+### 원인 분석
+```python
+# 기존 구조 (문제 있음)
+# LLM_chatbot_base_info_model.py: 모델 로드 (4GB)
+# LLM_chatbot_free_text_model.py: 모델 로드 (4GB)  
+# LLM_feedback_model.py: 또 다른 모델 로드 (4GB)
+# 총 12GB 사용
+```
+
+### 해결책
+**Feedback 모델도 공유 모델 사용으로 변경**:
+1. `Text/LLM/model/feedback/LLM_feedback_model.py` 수정
+2. 독립적인 모델 로딩 코드 제거
+3. 공유 모델의 model과 tokenizer 사용
+
+```python
+# 변경 전 (독립적 모델 로딩)
+class FeedbackModel:
+    def __init__(self):
+        # Hugging Face 로그인
+        hf_token = os.getenv("HUGGINGFACE_API_KEYMAC")
+        if hf_token:
+            login(token=hf_token)
+        
+        # 토크나이저 로딩
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            "mistralai/Mistral-7B-Instruct-v0.3",
+            cache_dir=MODEL_PATH,
+            torch_dtype=torch.float16,
+            token=hf_token
+        )
+        
+        # 모델 로딩
+        self.model = AutoModelForCausalLM.from_pretrained(
+            "mistralai/Mistral-7B-Instruct-v0.3",
+            cache_dir=MODEL_PATH,
+            device_map="auto",
+            low_cpu_mem_usage=True,
+            token=hf_token,
+            torch_dtype=torch.float16,
+            trust_remote_code=True,
+            max_position_embeddings=2048,
+            quantization_config=quantization_config,
+            offload_folder="offload",
+            offload_state_dict=True
+        )
+
+# 변경 후 (공유 모델 사용)
+from Text.LLM.model.chatbot.shared_model import shared_model
+
+class FeedbackModel:
+    def __init__(self):
+        # 공유 모델 사용으로 변경
+        self.model = model
+        self.tokenizer = tokenizer
+        
+        logger.info("Feedback model initialized with shared model")
+```
+
+## 2. 메모리 관리 통합
+
+### 문제점
+- Feedback 모델에서 독립적인 메모리 정리 로직 사용
+- `torch.cuda.empty_cache()`와 `gc.collect()` 중복 호출
+- 일관성 없는 메모리 관리
+
+### 해결책
+**공유 모델의 메모리 정리 함수 사용**:
+```python
+async def generate_feedback(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        # 메모리 정리
+        shared_model.cleanup_memory()
+        
+        # ... 피드백 생성 로직 ...
+        
+    except Exception as e:
+        # ... 에러 처리 ...
+    finally:
+        # 메모리 정리
+        shared_model.cleanup_memory()
+        logger.info("Feedback model memory cleanup completed")
+```
+
+## 3. 코드 리팩토링
+
+### 3.1. 중복 코드 제거
+- Hugging Face 로그인 코드 제거 (공유 모델에서 이미 처리)
+- 토크나이저 로딩 코드 제거
+- 모델 로딩 코드 제거
+- 양자화 설정 코드 제거
+- GPU 메모리 계산 코드 제거
+
+### 3.2. 의존성 정리
+```python
+# 제거된 import들
+# from huggingface_hub import login
+# from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+
+# 유지된 import들
+from Text.LLM.model.chatbot.shared_model import shared_model
+```
+
+## 4. 성능 개선 효과
+
+### 메모리 사용량
+- **기존**: 12GB (3개 모델)
+- **개선 후**: 4GB (1개 공유 모델)
+- **절약**: 67% 메모리 절약
+
+### 안정성
+- 연속 요청 시 메모리 부족 오류 해결
+- CUDA 메모리 단편화 문제 감소
+- 서버 재시작 없이도 안정적인 운영 가능
+
+### 유지보수성
+- 모델 설정 변경 시 한 곳에서만 수정
+- 코드 중복 제거
+- 일관된 메모리 관리
+
+### 응답 속도
+- 모델 로딩 시간 단축 (이미 로드된 모델 사용)
+- 메모리 정리 오버헤드 감소
+- 전반적인 성능 향상
+
+## 5. 메모리 정리 위치 최적화
+
+### 함수 시작 시 메모리 정리
+```python
+async def generate_feedback(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        # 메모리 정리
+        shared_model.cleanup_memory()
+        
+        # 입력 데이터 검증...
+```
+**이유:**
+- 이전 요청의 메모리 잔여물 정리
+- 깨끗한 상태에서 피드백 생성 시작
+- 메모리 단편화 방지
+
+### 함수 종료 시 메모리 정리
+```python
+    finally:
+        # 메모리 정리
+        shared_model.cleanup_memory()
+        logger.info("Feedback model memory cleanup completed")
+```
+**이유:**
+- 성공/실패 관계없이 확실한 메모리 정리 보장
+- 다음 요청을 위한 준비
+- 메모리 누수 방지
+
+## 현재 상태
+- Feedback 모델 공유 모델 적용 완료
+- 메모리 사용량 67% 절약 (12GB → 4GB)
+- 일관된 메모리 관리로 안정성 향상
+- 코드 중복 제거로 유지보수성 개선

@@ -8,8 +8,7 @@ from langchain.output_parsers import StructuredOutputParser, ResponseSchema
 from langgraph.graph import StateGraph, END
 from typing import TypedDict, Annotated, Sequence, Optional, Dict, List, Generator, Any
 from Text.LLM.model.chatbot.chatbot_constants import label_mapping, ENV_KEYWORDS, BAD_WORDS
-from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer, BitsAndBytesConfig
-from transformers import LogitsProcessorList, InfNanRemoveLogitsProcessor
+from transformers import TextIteratorStreamer, LogitsProcessorList, InfNanRemoveLogitsProcessor
 import torch
 import os
 import json
@@ -20,8 +19,8 @@ import logging
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_qdrant import QdrantVectorStore
 from fastapi import HTTPException
-from huggingface_hub import login
 import gc
+from Text.LLM.model.chatbot.shared_model import shared_model
 
 # 로깅 설정
 logging.basicConfig(
@@ -33,111 +32,11 @@ logger = logging.getLogger(__name__)
 # 환경 변수 로드
 load_dotenv()
 
-# Hugging Face 로그인
-hf_token = os.getenv("HUGGINGFACE_API_KEYMAC")
-if hf_token:
-    try:
-        login(token=hf_token)
-        logger.info("Hugging Face Hub에 성공적으로 로그인했습니다.")
-    except Exception as e:
-        logger.error(f"Hugging Face Hub 로그인 실패: {e}")
-else:
-    logger.warning("HUGGINGFACE_API_KEYMAC 환경 변수를 찾을 수 없습니다. Hugging Face 로그인 건너뜜.")
+# 공유 모델 사용
+model = shared_model.model
+tokenizer = shared_model.tokenizer
 
-# 프로젝트 루트 경로 설정
-current_file = os.path.abspath(__file__)
-logger.info(f"Current file: {current_file}")
-
-project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
-logger.info(f"Project root: {project_root}")
-
-# 모델 경로 설정
-MODEL_PATH = "/home/ubuntu/mistral"
-logger.info(f"Model path: {MODEL_PATH}")
-
-# 모델 경로 확인
-if not os.path.exists(MODEL_PATH):
-    logger.error(f"모델 경로를 찾을 수 없습니다: {MODEL_PATH}")
-    raise HTTPException(
-        status_code=500,
-        detail={
-            "status": 500,
-            "message": f"모델 경로를 찾을 수 없습니다: {MODEL_PATH}",
-            "data": None
-        }
-    )
-
-logger.info(f"모델 경로: {MODEL_PATH}")
-
-# GPU 사용 가능 여부 확인
-device = "cuda" if torch.cuda.is_available() else "cpu"
-logger.info(f"사용 가능한 디바이스: {device}")
-
-# 모델과 토크나이저 초기화
-try:
-    logger.info("Loading tokenizer...")
-    tokenizer = AutoTokenizer.from_pretrained(
-        "mistralai/Mistral-7B-Instruct-v0.3",  # Mistral-7B 모델의 토크나이저 로드
-        cache_dir=MODEL_PATH,  # 모델 파일을 저장할 로컬 경로
-        torch_dtype=torch.float16,  # 16비트 부동소수점 사용으로 메모리 사용량 절반으로 감소
-        token=hf_token  # Hugging Face API 토큰으로 비공개 모델 접근
-    )
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token  # Mistral 모델은 기본 패딩 토큰이 없어서 EOS 토큰으로 대체
-        tokenizer.pad_token_id = tokenizer.eos_token_id
-    
-    logger.info("Loading model...")
-
-    # 4비트 양자화 설정 최적화
-    quantization_config = BitsAndBytesConfig(
-        load_in_4bit=True,  # 4비트 양자화 활성화
-        bnb_4bit_compute_dtype=torch.float16,  # 계산은 16비트로 수행
-        bnb_4bit_use_double_quant=True,  # 이중 양자화로 메모리 추가 절약
-        bnb_4bit_quant_type="nf4"
-    )
-
-    # GPU 메모리 사용량 계산
-    gpu_memory = torch.cuda.get_device_properties(0).total_memory
-    # 4비트 양자화된 Mistral-7B 모델은 약 4GB의 메모리를 사용
-    model_memory = 4 * 1024**3  # 4GB
-    # 남은 메모리의 90%를 사용 가능하도록 설정
-    available_memory = int((gpu_memory - model_memory) * 0.9)
-    logger.info(f"GPU 메모리: {gpu_memory / 1024**3:.2f}GB, 모델 예상 메모리: {model_memory / 1024**3:.2f}GB, 사용 가능 메모리: {available_memory / 1024**3:.2f}GB")
-
-    # 모델 로드 전 메모리 정리
-    torch.cuda.empty_cache()
-    gc.collect()
-
-    model = AutoModelForCausalLM.from_pretrained(
-        "mistralai/Mistral-7B-Instruct-v0.3",  # Mistral-7B 모델 로드
-        cache_dir=MODEL_PATH,  # 모델 파일을 저장할 로컬 경로
-        device_map="auto",  # GPU/CPU 자동 할당
-        low_cpu_mem_usage=True,  # CPU 메모리 사용량 최소화
-        token=hf_token,  # Hugging Face API 토큰
-        torch_dtype=torch.float16,  # 16비트 부동소수점 사용
-        trust_remote_code=True,  # 커스텀 코드 실행 허용
-        max_position_embeddings=2048,  # 최대 입력 길이 제한
-        quantization_config=quantization_config,  # 4비트 양자화 적용
-        offload_folder="offload",  # 메모리 부족시 모델 일부를 디스크에 저장
-        offload_state_dict=True,  # 모델 상태를 디스크에 저장하여 메모리 절약
-    )
-    
-    # 메모리 최적화를 위한 설정
-    model.config.use_cache = False  # 캐시 사용 비활성화로 메모리 절약
-    model.eval()  # 평가 모드로 설정
-
-except Exception as e:
-    logger.error(f"모델 로딩 실패: {str(e)}")
-    raise HTTPException(
-        status_code=500,
-        detail={
-            "status": 500,
-            "message": f"모델 로딩 실패: {str(e)}",
-            "data": None
-        }
-    )
-
-logger.info("Model loaded successfully!")
+logger.info("Using shared Mistral model for free-text chatbot")
 
 # Qdrant 설정
 QDRANT_URL = os.getenv("QDRANT_URL")
@@ -202,8 +101,7 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
     logger.info(f"[get_llm_response]생성 시작 - 프롬프트 길이: {len(prompt)}")
     try:
         # 메모리 정리
-        torch.cuda.empty_cache()
-        gc.collect()
+        shared_model.cleanup_memory()
         logger.info("get_llm_response 시작 전 메모리 정리 완료")
 
         inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
@@ -389,8 +287,7 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
         }
     finally:
         # 메모리 정리
-        torch.cuda.empty_cache()
-        gc.collect()
+        shared_model.cleanup_memory()
         logger.info("메모리 정리 완료")
 
 # 대화 상태를 관리하기 위한 타입 정의
@@ -646,6 +543,29 @@ def process_chat(sessionId: str, query: str, base_info_category: Optional[str] =
         # 현재 상태 가져오기
         current_state = conversation_states[sessionId]
         
+        # 토큰 수 체크 및 대화 기록 조정
+        messages = current_state["messages"]
+        while len(messages) > 2:  # 최소 1번의 대화는 유지
+            # 현재 메시지들로 프롬프트 구성
+            test_messages = "\n".join(messages)
+            test_prompt = custom_prompt.format(
+                context="",
+                query=query,
+                messages=test_messages,
+                category=current_state["category"]
+            )
+            
+            # 토큰 수 체크
+            test_inputs = tokenizer(test_prompt, return_tensors="pt")
+            if test_inputs.input_ids.shape[1] <= 1800:  # 여유를 두고 1800 토큰으로 제한
+                break
+            
+            # 토큰 수가 많으면 가장 오래된 대화 제거 (2개씩: User + Assistant)
+            messages = messages[2:]
+        
+        # 조정된 메시지로 상태 업데이트
+        current_state["messages"] = messages
+        
         # 새로운 상태 생성
         state = {
             "messages": current_state["messages"],
@@ -669,9 +589,9 @@ def process_chat(sessionId: str, query: str, base_info_category: Optional[str] =
             current_state["messages"].append(f"User: {query}")
             current_state["messages"].append(f"Assistant: {result['response']}")
             
-            # 대화 기록이 너무 길어지면 오래된 메시지 제거
-            if len(current_state["messages"]) > 10:
-                current_state["messages"] = current_state["messages"][-10:]
+            # 대화 기록이 너무 길어지면 오래된 메시지 제거 (더 엄격하게 제한)
+            if len(current_state["messages"]) > 6:  # 10개에서 6개로 줄임 (3번의 대화)
+                current_state["messages"] = current_state["messages"][-6:]
             
             return result["response"]
         
@@ -679,8 +599,7 @@ def process_chat(sessionId: str, query: str, base_info_category: Optional[str] =
         return result["response"]
     finally:
         # 메모리 정리
-        torch.cuda.empty_cache()
-        gc.collect()
+        shared_model.cleanup_memory()
         logger.info("process_chat 메모리 정리 완료")
 
 def clear_conversation(sessionId: str):
