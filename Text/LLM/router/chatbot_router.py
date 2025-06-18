@@ -199,6 +199,10 @@ async def freetext_rag(
     """
     자유 채팅 입력을 기반으로 친환경 챌린지를 추천하는 SSE 엔드포인트
     """
+    # URL 디코딩 추가
+    if message:
+        message = unquote(message)
+    
     # 입력값 검증
     if not message or not message.strip():
         return EventSourceResponse(
