@@ -22,7 +22,7 @@
 
 분류 | 사용 기술
 -- | --
-AI Model | `Vertex AI (Gemini-2.0-flash) API`, `LLaVA-13B`, `Mistral-7B`
+AI Model | `Vertex AI (Gemini-2.0-flash) API`, `LLaVA-13B`, `Mistral-7B`, `HyperClovax-1.5B`
 Server | `Python`, `FastAPI`, `Cloud Pub/Sub`, `GCS`, `SSE`, `MongoDB`
 LLM Orchestration | `LangChain`, `RAG`, `VectorDB (QdrantDB)`
 
@@ -33,7 +33,7 @@ LLM Orchestration | `LangChain`, `RAG`, `VectorDB (QdrantDB)`
 no. | 기능 | 모델명 | 설명 | 사용 모델 
 -- | -- | -- | -- | --
 1 | 챌린지 이미지 인증 | verify | 유저 인증 이미지를 기반으로 AI가 자동 검증 | API -> `LLaVA-13B`
-2 | 챌린지 생성 검열 | censorship | 챌린지 생성 시 AI를 통해 중복/부적절 항목 필터링 | API -> `Mistral-7B`
+2 | 챌린지 생성 검열 | censorship | 챌린지 생성 시 AI를 통해 중복/부적절 항목 필터링 | API -> `HyperClovax-1.5B`
 3 | 챌린지 추천 챗봇 | chatbot | 개인 취향 기반 챌린지 추천 | API -> `Mistral-7B`
 4 | 주간 피드백 생성 | feedback | 주간 챌린지 활동을 분석하여 요약 피드백 제공 | API -> `Mistral-7B`
 
