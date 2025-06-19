@@ -7,9 +7,11 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 
 from model.LLM_censorship_model import CensorshipModel
+from model.censorship_hyperclovax_model import HyperClovaxModel
 
 router = APIRouter()
-model = CensorshipModel()
+# model = CensorshipModel()
+model = HyperClovaxModel()
 
 # 요청 데이터 모델
 class ChallengeInfo(BaseModel):

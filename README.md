@@ -11,7 +11,7 @@
 
 ## 📌 Quick View
 
-### [영상 바로가기](https://drive.google.com/file/d/1O8r-uZpLbOSZO7-Ohy88Capj6l6PVkOI/view?usp=sharing)
+### [영상 바로가기](https://drive.google.com/file/d/1O8r-uZpLbOSZO7-Ohy88Csapj6l6PVkOI/view?usp=sharing)
 
 <img src="https://github.com/user-attachments/assets/a1bfcdfe-091a-4a44-b003-3383dcb38d1f" width="750">
 
