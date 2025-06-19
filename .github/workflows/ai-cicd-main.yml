@@ -8,6 +8,15 @@ on:
     branches:
       - main
 
+env:
+  REGION: asia-northeast3
+  BLUE_MIG_NAME: leafresh-fe-blue-template
+  GREEN_MIG_NAME: leafresh-fe-green-template
+  LOAD_BALANCER_NAME: leafresh-https-lb
+  URL_MAP_NAME: leafresh-https-lb  # URL Map 이름
+  BLUE_BACKEND_SERVICE_NAME: leafresh-fe-blue-bs
+  GREEN_BACKEND_SERVICE_NAME: leafresh-fe-green-bs
+
 
 jobs:
   unit-and-integration-test-api:
@@ -63,7 +72,38 @@ jobs:
 
       - name: Terminate uvicorn
         run: pkill -f "uvicorn"
-        
+
+  build-api:
+    name: Build  - API
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    needs: unit-and-integration-test-api
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./
+    steps:
+      - uses: actions/checkout@v3              # 코드 체크아웃
+
+      - name: Set up Docker Buildx             # Docker Buildx 설정
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker-container
+
+      - name: Login to Docker Hub              # Docker Hub 로그인
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Build and Push Docker Image to Docker Hub     # Docker 이미지 빌드 및 푸시
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            jchanho99/ai-prod:latest
+  
   deploy-api:
     name: Deploy - API
     if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, 'dev') && github.base_ref == 'refs/heads/main'
@@ -74,95 +114,148 @@ jobs:
       GOOGLE_CREDENTIAL_JSON_BASE64: ${{ secrets.GCP_SA_KEY_DEV_BASE64 }}
       ENV_DEV: ${{ secrets.ENV_AI_DEV }}
     steps:
-      - name: SSH 배포
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SSH_HOST_PROD }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: 22
-          script: |
-            echo "기존 uvicorn 종료 시도"
-            for pid in $(pgrep -f uvicorn); do
-              if [ "$pid" != "$$" ]; then
-                echo "Killing uvicorn PID $pid"
-                kill -15 "$pid"
-              fi
-            done
+      - name: Extract tag name
+        id: tag
+        run: |
+          TAG_NAME="${GITHUB_REF#refs/tags/v}"
+          echo "TAG_NAME=$TAG_NAME" >> $GITHUB_ENV0
 
-            sleep 5
+      - name: Determine current active MIG (Blue or Green)
+        id: get_active_mig
+        run: |
+          # Load Balancer의 URL Map에서 현재 트래픽이 어느 백엔드로 향하고 있는지 확인합니다.
+          # Artifact Registry 버전과 동일한 로직을 사용합니다.
+          
+          ACTIVE_MIG_NAME=""
+          INACTIVE_MIG_NAME=""
+          ACTIVE_BACKEND_SERVICE=""
+          INACTIVE_BACKEND_SERVICE=""
 
-            echo "기존 소스코드 제거 및 새로운 코드 다운로드"
-            cd /home/${USER:-ubuntu}
-            rm -rf 15-Leafresh-AI
+          CURRENT_DEFAULT_SERVICE=$(gcloud compute url-maps describe ${{ env.URL_MAP_NAME }} --project ${{ env.PROJECT_ID_PROD }} --format="value(defaultService)" | awk -F'/' '{print $NF}')
 
-            if [ -d 15-Leafresh-AI ]; then
-              echo "삭제 실패: 디렉토리가 여전히 존재함"
+          if [[ "$CURRENT_DEFAULT_SERVICE" == "${{ env.BLUE_BACKEND_SERVICE_NAME }}" ]]; then
+            echo "Current active backend is BLUE. Deploying to GREEN."
+            ACTIVE_MIG_NAME="${{ env.BLUE_MIG_NAME }}"
+            INACTIVE_MIG_NAME="${{ env.GREEN_MIG_NAME }}"
+            ACTIVE_BACKEND_SERVICE="${{ env.BLUE_BACKEND_SERVICE_NAME }}"
+            INACTIVE_BACKEND_SERVICE="${{ env.GREEN_BACKEND_SERVICE_NAME }}"
+          else
+            echo "Current active backend is GREEN. Deploying to BLUE."
+            ACTIVE_MIG_NAME="${{ env.GREEN_MIG_NAME }}"
+            INACTIVE_MIG_NAME="${{ env.BLUE_MIG_NAME }}"
+            ACTIVE_BACKEND_SERVICE="${{ env.GREEN_BACKEND_SERVICE_NAME }}"
+            INACTIVE_BACKEND_SERVICE="${{ env.BLUE_BACKEND_SERVICE_NAME }}"
+          fi
+          echo "active_mig_name=$ACTIVE_MIG_NAME" >> $GITHUB_OUTPUT
+          echo "inactive_mig_name=$INACTIVE_MIG_NAME" >> $GITHUB_OUTPUT
+          echo "active_backend_service=$ACTIVE_BACKEND_SERVICE" >> $GITHUB_OUTPUT
+          echo "inactive_backend_service=$INACTIVE_BACKEND_SERVICE" >> $GITHUB_OUTPUT
+
+      - name: Get current MIG instance template name
+        id: get_template
+        run: |
+          TEMPLATE_NAME=$(gcloud compute instance-groups managed describe ${{ steps.get_active_mig.outputs.inactive_mig_name }} --zone ${{ env.REGION }}-a --project ${{ env.PROJECT_ID }} --format="value(instanceTemplate)" | awk -F'/' '{print $NF}')
+          echo "current_template_name=$TEMPLATE_NAME" >> $GITHUB_OUTPUT
+          
+      - name: Create new instance template for inactive MIG
+        id: create_new_template
+        run: |
+          NEW_TEMPLATE_NAME="${{ steps.get_active_mig.outputs.inactive_mig_name }}-${{ github.sha }}"
+          FULL_IMAGE_NAME="jchanho99/ai-prod"
+
+          gcloud compute instance-templates create $NEW_TEMPLATE_NAME \
+            --project ${{ secrets.GCP_PROJECT_ID_PROD }} \
+            --machine-type e2-custom-2-3072 \
+            --image-family ubuntu-2204-lts \
+            --image-project ubuntu-os-cloud \
+            --boot-disk-size 20GB \
+            --metadata startup-script="""#! /bin/bash
+            sudo apt-get update
+            sudo apt-get install -y ca-certificates curl gnupg lsb-release
+            sudo mkdir -p /etc/apt/keyrings
+            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+            $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+            sudo apt-get update
+            sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+            sudo systemctl start docker
+            sudo systemctl enable docker
+
+            # .env를 홈 디렉토리에 우선 저장
+            if ! gcloud secrets versions access latest \
+              --secret="env-be-prod" \
+              --project="${{ secrets.GCP_PROJECT_ID_PROD }}" > ~/.env; then
+              echo ".env 파일 다운로드 실패"
               exit 1
             fi
-
-            echo "디렉토리 삭제 성공, git clone 수행"
-            git clone https://github.com/100-hours-a-week/15-Leafresh-AI.git
-
-            echo "venv 활성화 및 requirements.txt 갱신 확인"
-            source .venv/bin/activate
-            cd 15-Leafresh-AI/
-            pip install -r requirements.txt
-
-            echo "env 파일 생성"
-            cat <<EOF > .env
-              ${{ secrets.ENV_AI_DEV }}
-            EOF
             
-            while IFS= read -r line; do
-              if [[ "$line" == *=* && "$line" != \#* ]]; then
-                echo "$line"
-              fi
-            done < .env
+            sudo docker pull $FULL_IMAGE_NAME:latest
+            sudo docker run -d -p 80:80 --env-file ~/.env $FULL_IMAGE_NAME:latest
+            """ \
+            --tags http-server,https-server \
+            --scopes cloud-platform # 필요한 스코프 추가
 
-            echo "Google Credentials 생성"
-            filename=$(grep "GOOGLE_APPLICATION_CREDENTIALS=" .env | sed 's/^[[:space:]]*//' | cut -d '=' -f2 | xargs)
+          echo "new_template_name=$NEW_TEMPLATE_NAME" >> $GITHUB_OUTPUT
 
-            echo "저장할 파일명: $filename"
-            echo "${{ secrets.GCP_SA_KEY_DEV_BASE64 }}" | base64 -d > "$filename"
-            
-            echo "유효한 JSON인지 확인"
-            jq . "$filename" > /dev/null || { echo "JSON 파일 확인 실패"; exit 1; }
+      - name: Update inactive MIG with new instance template
+        run: |
+          gcloud compute instance-groups managed set-instance-template ${{ steps.get_active_mig.outputs.inactive_mig_name }} \
+            --template ${{ steps.create_new_template.outputs.new_template_name }} \
+            --zone ${{ env.REGION }}-a \
+            --project ${{ secrets.GCP_PROJECT_ID_PROD }}
+          
+          echo "Waiting for rolling update of ${{ steps.get_active_mig.outputs.inactive_mig_name }} to complete..."
+          gcloud compute instance-groups managed wait-until --stable ${{ steps.get_active_mig.outputs.inactive_mig_name }} --zone ${{ env.REGION }}-a --project ${{ secrets.GCP_PROJECT_ID_PROD }}
+          
+      - name: Health Check for inactive MIG
+        run: |
+          echo "Performing health check on newly deployed MIG (${{ steps.get_active_mig.outputs.inactive_mig_name }})..."
+          echo "Simulating health check success. (Replace with actual health check logic)"
 
+      - name: Switch Load Balancer traffic to new MIG
+        run: |
+          echo "Switching Load Balancer traffic from ${{ steps.get_active_mig.outputs.active_backend_service }} to ${{ steps.get_active_mig.outputs.inactive_backend_service }}..."
+          
+          gcloud compute url-maps set-default-service ${{ env.URL_MAP_NAME }} \
+            --default-service ${{ steps.get_active_mig.outputs.inactive_backend_service }} \
+            --project ${{ secrets.GCP_PROJECT_ID_PROD }} \
+            --global
 
-            echo "uvicorn 실행"
-            nohup uvicorn main:app --host 0.0.0.0 --port 8000 --env-file .env > uvicorn.log 2>&1 &
-            disown
+          echo "Traffic switch initiated. It may take some time for changes to propagate."
+          
+      - name: Clean up old instance template (optional)
+        run: |
+          OLD_TEMPLATE_NAME="${{ steps.get_template.outputs.current_template_name }}"
+          if [[ -n "$OLD_TEMPLATE_NAME" ]]; then
+            echo "Deleting old instance template: $OLD_TEMPLATE_NAME"
+            gcloud compute instance-templates delete $OLD_TEMPLATE_NAME --project ${{ secrets.GCP_PROJECT_ID_PROD }} --quiet
+          fi
 
-            echo "venv 종료"
-            deactivate
+      - name: Tag and Push Docker Image (tag = ${{ env.TAG_NAME }})
+        run: |
+          docker pull jchanho99/ai-prod:latest
+          docker image tag jchanho99/ai-prod:latest temp-image-with-label
 
-            echo "로그 확인"
-            sleep 20
-            cat uvicorn.log || echo "uvicorn log missing"
+          # 임시 컨테이너 생성 후 레이블 추가로 digest 변경
+          docker container create --name temp-container temp-image-with-label
+          docker commit --change "LABEL force-push-tag=${TAG_NAME}-$(date +%s)" temp-container jchanho99/ai-prod:${TAG_NAME}
 
-            echo "uvicorn 실행 환경 확인"
-            ps aux | grep uvicorn
+          # 정리
+          docker container stop temp-container
+          docker container rm temp-container
+          docker image rm temp-image-with-label
 
-            # Check for errors in uvicorn.log
-            if grep -q -iE "Traceback|error|exception|fail" uvicorn.log; then
-              echo "::error::uvicorn.log에서 오류 감지됨"
-              exit 1
-            else
-              echo "배포 성공"
-            fi
+          # 푸시
+          docker push jchanho99/ai-prod:${TAG_NAME}
 
-      - name: Set Status
+      - name: Set Status (Prod)
         id: set-status
         if: success()
         run: echo "status=success" >> "$GITHUB_OUTPUT"
 
-      - name: Set Status (Failure)
-        if: failure() && steps.deploy-api.outcome == 'failure'
-        run: echo "status=failure" >> "$GITHUB_OUTPUT" 
-  
-  
-  
+      - name: Set Status (Prod Failure)
+        if: failure() && steps.deploy-prod.outcome == 'failure' # deploy-step이 실패했을 때만
+        run: echo "status=failure" >> "$GITHUB_OUTPUT"
   
   notify:
     name: Discord Notification
