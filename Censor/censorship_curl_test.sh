@@ -107,4 +107,3 @@ curl -X POST http://localhost:8000/ai/challenges/group/validation \
       { "id": 214, "name": "Bring Your Own Cup", "startDate": "2025-06-15", "endDate": "2025-06-21" }
     ]
   }'
-
