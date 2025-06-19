@@ -9,9 +9,8 @@ import os
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(project_root)
 
-from Text.LLM.router.censorship_router import router as censorship_router
-from Text.LLM.router.censorship_router import validation_exception_handler
-from Text.LLM.router.censorship_router import http_exception_handler
+from router.error_router import validation_exception_handler
+from router.error_router import http_exception_handler
 
 from Text.LLM.router.chatbot_router import router as chatbot_router
 
@@ -40,7 +39,6 @@ app.add_middleware(
 )
 
 # router 등록
-app.include_router(censorship_router)
 app.include_router(chatbot_router)
 app.include_router(feedback_router)
 
