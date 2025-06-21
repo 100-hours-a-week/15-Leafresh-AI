@@ -35,20 +35,22 @@ class FeedbackModel:
         logger.info("Feedback model initialized with shared model")
         
         # 한글 기준으로 4-5문장에 적절한 토큰 수로 조정 (약 200-250자)
-        self.max_tokens = 200
+        self.max_tokens = 250
         # 프롬프트 템플릿을 환경 변수에서 가져오거나 기본값 사용
-        self.prompt_template = os.getenv("FEEDBACK_PROMPT_TEMPLATE", """
-        다음은 사용자의 챌린지 참여 기록입니다. 이를 바탕으로 긍정적이고 격려하는 피드백을 생성해주세요.
+        self.prompt_template = os.getenv("FEEDBACK_PROMPT_TEMPLATE",
+        """
+        다음 {personal_challenges}와 {group_challenges} 기록을 통합하여 요약하고, 사용자의 노력을 인정하고 격려하는 피드백을 한글로 생성해주세요.
+        실패한 챌린지에 대해서는 위로와 함께 다음 기회를 기대한다는 메시지를 포함해주세요.
+        유니코드(Unicode) 표준에 포함된 이모지(예: 😊, 🌱, 🎉 등)를 적절히 사용하여 친근하고 밝은 톤으로 작성해주세요.
+        같은 의미의 문장을 반복하지 말고, 구체적이고 간결하게 작성하세요.
+        문장이 중간에 끊기지 않게 완결된 문장으로 작성하세요.
+        무조건 전체 답변은 한글 기준 250자 이내로 작성하세요.
 
         개인 챌린지:
         {personal_challenges}
 
         단체 챌린지:
         {group_challenges}
-
-        위 기록을 바탕으로, 사용자의 노력을 인정하고 격려하는 피드백을 생성해주세요.
-        실패한 챌린지에 대해서는 위로와 함께 다음 기회를 기대한다는 메시지를 포함해주세요.
-        이모지를 적절히 사용하여 친근하고 밝은 톤으로 작성해주세요.
         """)
 
     def _is_within_last_week(self, date_str: str) -> bool:
@@ -138,6 +140,7 @@ class FeedbackModel:
             try:
                 # Mistral 모델을 통한 피드백 생성
                 inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
+                prompt_length = inputs["input_ids"].shape[1]  # 프롬프트 토큰 길이
                 outputs = self.model.generate(
                     **inputs,
                     max_new_tokens=self.max_tokens,
@@ -145,7 +148,9 @@ class FeedbackModel:
                     do_sample=True,
                     pad_token_id=self.tokenizer.eos_token_id
                 )
-                full_feedback = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+                # 생성된 전체 시퀀스에서 프롬프트 이후 부분만 디코딩
+                generated_ids = outputs[0][prompt_length:]
+                full_feedback = self.tokenizer.decode(generated_ids, skip_special_tokens=True)
 
                 if not full_feedback.strip():
                     return {
