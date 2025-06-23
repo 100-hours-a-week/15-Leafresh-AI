@@ -16,8 +16,6 @@ import random
 import re
 import threading
 import logging
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_qdrant import QdrantVectorStore
 from fastapi import HTTPException
 import gc
 from Text.LLM.model.chatbot.shared_model import shared_model
@@ -44,19 +42,19 @@ QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 COLLECTION_NAME = os.getenv("QDRANT_COLLECTION_NAME")
 
 qdrant_client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
-embedding_model = HuggingFaceEmbeddings(model_name="BAAI/bge-small-en-v1.5")
+embedding_model = SentenceTransformerEmbeddings(model_name="BAAI/bge-small-en-v1.5")
 
-vectorstore = QdrantVectorStore(
+vectorstore = Qdrant(
     client=qdrant_client,
     collection_name=COLLECTION_NAME,
-    embedding=embedding_model
+    embeddings=embedding_model
 )
 
 retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
 
 # RAG 방식 챌린지 추천을 위한 Output Parser 정의
 rag_response_schemas = [
-    ResponseSchema(name="recommend", description="추천 텍스트를 한글로 한 문장으로 출력해줘.(예: '이런 챌린지를 추천합니다.')"),
+    ResponseSchema(name="recommend", description="추천 텍스트를 한글로 한 문장으로 출력해주고 실제 줄바꿈(엔터)으로 구분해 주세요.(예: '이런 챌린지를 추천합니다.')"),
     ResponseSchema(name="challenges", description="추천 챌린지 리스트, 각 항목은 title, description 포함, description은 한글로 한 문장으로 요약해주세요.")
 ]
 
@@ -82,16 +80,14 @@ custom_prompt = PromptTemplate(
 {{query}}
 
 주의사항:
-1. 모든 속성 이름은 반드시 큰따옴표(")로 둘러싸야 합니다.
-2. 모든 문자열 값도 큰따옴표(")로 둘러싸야 합니다.
-3. recommend 필드에는 {{category}} 관련 추천 문구를 포함해야 합니다.
-4. 출력은 반드시 아래 JSON 포맷과 동일한 구조여야 하며, 마크다운 형식으로 감싸야 합니다.
+1. 모든 속성 이름과 문자열 값은 반드시 큰따옴표(")로 둘러싸야 합니다.
+2. recommend 필드에는 {{category}} 관련 추천 문구를 포함해야 합니다.
+3. 각 title 내용은 번호를 붙이고, 실제 줄바꿈(엔터)으로 구분해 주세요.
 
 출력 형식 예시:
 {escaped_format}
 
-반드시 위의 json 블록 안에 전체 응답을 한글로 출력하세요.
-[/INST]</s>
+반드시 위 JSON 형식 그대로 반드시 한글로 한번만 출력하세요. [/INST]</s>
 """
 )
 
@@ -115,22 +111,27 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
             decode_kwargs={
                 "skip_special_tokens": True,
                 "clean_up_tokenization_spaces": True,
-                "errors": "ignore"
+                "errors": "ignore" # 디코딩 할 수 없는 바이트는 무시
             }
         )
         logits_processor = LogitsProcessorList([
             InfNanRemoveLogitsProcessor()
         ])
 
-        # 모델 생성 설정
+       # 모델 생성 설정 
         generation_kwargs = dict(
             inputs,  # 입력 텐서 (input_ids, attention_mask 등)
             streamer=streamer,  # 스트리밍 응답을 위한 TextIteratorStreamer 객체
-            max_new_tokens=1024,  # 모델이 생성할 수 있는 최대 토큰 수 (JSON이 완성되도록 충분히 설정)
-            temperature=0.7,  # 생성 다양성 조절 (0.0~1.0, 높을수록 더 다양한 응답)
-            do_sample=True,  # 확률적 샘플링 활성화 (temperature와 함께 사용)
+            max_new_tokens=512,  # 토큰 수를 줄여서 안정성 향상
+            temperature=0.3,  # 더 낮은 temperature로 일관성 향상
+            do_sample=True,  # 확률적 샘플링 활성화
+            top_p=0.9,  # nucleus sampling 추가
+            top_k=50,  # top-k sampling 추가
+            repetition_penalty=1.1,  # 반복 방지
             pad_token_id=tokenizer.eos_token_id, # 패딩 토큰 ID 설정 (Mistral은 EOS 토큰을 패딩으로 사용)
-            logits_processor=logits_processor  
+            logits_processor=logits_processor,
+            eos_token_id=tokenizer.eos_token_id,  # EOS 토큰 명시적 설정
+            early_stopping=True  # 조기 중단 활성화
         )
         logger.info("스레드 시작 및 모델 생성 시작.")
 
@@ -157,6 +158,7 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                     cleaned_text = re.sub(r'"(recommend|challenges|title|description)":\s*("|\')?', '', cleaned_text)
                     # 마크다운 및 JSON 구조 제거
                     cleaned_text = cleaned_text.replace("```json", "").replace("```", "").strip()
+                    cleaned_text = cleaned_text.replace("\\n", "\n")  # 문자열 → 줄바꿈
                     cleaned_text = re.sub(r'["\']', '', cleaned_text)  # 따옴표 제거
                     cleaned_text = re.sub(r'[\[\]{}]', '', cleaned_text)  # 괄호 제거
                     cleaned_text = re.sub(r',\s*$', '', cleaned_text)  # 끝의 쉼표 제거
@@ -194,10 +196,10 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                 logger.info(f"전체 응답: {full_response}")
                 
                 # JSON 문자열 추출
-                json_match = re.search(r"```json\n([\s\S]*?)\n```", full_response)
+                json_match = re.search(r"```json\n([\s\S]*?)\n```", full_response.strip())
                 if json_match:
                     json_str = json_match.group(1).strip()
-                    logger.info(f"JSON 추출: {json_str}")
+                    # logger.info(f"JSON 추출: {json_str}")
                 else:
                     # 마크다운 코드 블록이 없는 경우, 마지막 JSON 객체 찾기
                     json_match = re.search(r'(\{[\s\S]*\})', full_response)
@@ -211,17 +213,27 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                     raise ValueError("JSON 문자열이 비어있습니다")
 
                 # JSON 파싱 전 문자열 정제
-                # 객체와 배열의 마지막 쉼표 제거
+
+                # 1. 객체와 배열의 마지막 쉼표 제거: {...,} → {...}
                 json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
-                # 연속된 쉼표 제거
+
+                # 2. 연속된 쉼표 제거: "a",, "b" → "a", "b"
                 json_str = re.sub(r',\s*,', ',', json_str)
-                
-                logger.info(f"최종 정제된 JSON 문자열: {json_str}")
+
+                # 3. 키와 값의 작은따옴표만 큰따옴표로 바꾸기
+                # 3.1. 'recommend': → "recommend":
+                json_str = re.sub(r"'(\w+)'\s*:", r'"\1":', json_str)
+
+                # 3.2. "recommend": 'value' → "recommend": "value"
+                json_str = re.sub(r':\s*\'([^\']*)\'', r': "\1"', json_str)
+
+                # 4. 공백 정리
+                json_str = re.sub(r'\s+', ' ', json_str).strip()
 
                 # JSON 파싱
                 try:
                     parsed_data_temp = json.loads(json_str)
-                    logger.info(f"JSON 파싱 성공: {parsed_data_temp}")
+                    # logger.info(f"JSON 파싱 성공: {parsed_data_temp}")
                     parsed_data = rag_parser.parse(json.dumps(parsed_data_temp))
                     logger.info(f"파싱 성공: {parsed_data}")
                 except json.JSONDecodeError as e:
@@ -236,6 +248,7 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                     for challenge in parsed_data["challenges"]:
                         challenge["category"] = eng_label
                     logger.info(f"카테고리 추가 완료: {eng_label}")
+                    logger.info(f"카테고리 추가된 챌린지 데이터: {parsed_data['challenges']}")
                     if not response_completed:  # 아직 응답이 완료되지 않았다면
                         response_completed = True 
                         yield {
@@ -362,6 +375,7 @@ def format_sse_response(event: str, data: Dict[str, Any]) -> Dict[str, Any]:
         "data": json.dumps(data, ensure_ascii=False)
     }
 
+# 대화 그래프 노드 정의
 def validate_query(state: ChatState) -> ChatState: # state는 챗봇의 현재 대화 상태를 담고 있는 딕셔너리
     """사용자 질문 유효성 검사"""
     if len(state["current_query"].strip()) < 5:
@@ -398,6 +412,7 @@ def retrieve_context(state: ChatState) -> ChatState:
     
     return state
 
+
 def generate_response(state: ChatState) -> ChatState:
     """응답 생성"""
     if not state["should_continue"]:
@@ -413,7 +428,7 @@ def generate_response(state: ChatState) -> ChatState:
         eng_label = label_mapping[category]
         logger.info(f"Adding category info - eng: {eng_label}")
         
-        # Hugging Face API로 응답 생성
+        # 프롬프트 생성
         prompt = custom_prompt.format(
             context=state["context"],
             query=state["current_query"],
@@ -421,53 +436,66 @@ def generate_response(state: ChatState) -> ChatState:
             category=category
         )
         
-        response = ""
+        # LLM 응답 생성 (스트리밍 방식 유지)
+        full_response = ""
         for data_payload in get_llm_response(prompt, category):
-            event = data_payload.get("event")
-            if event == "challenge":
-                # 스트리밍 데이터 처리
-                data = json.loads(data_payload.get("data", "{}"))
-                if data.get("data"):
-                    response += data["data"]
-            elif event == "error":
-                state["error"] = data_payload.get("message", "오류 발생")
-                state["should_continue"] = False
-                break
-            elif event == "close":
-                # 최종 응답 처리
-                data = json.loads(data_payload.get("data", "{}"))
-                if data.get("data"):
-                    response = json.dumps(data["data"])
-        
+            if isinstance(data_payload, dict) and "data" in data_payload:
+                full_response += str(data_payload["data"])
+            yield data_payload
+
         if state["should_continue"]:
-            # 필수 필드 검증
-            if "recommend" not in json.loads(response) or "challenges" not in json.loads(response):
-                raise ValueError("응답에 필수 필드가 없습니다.")
+            print(f"Raw LLM response: {full_response}")
             
-            # challenges가 문자열인 경우 배열로 변환
-            if isinstance(json.loads(response).get("challenges"), str):
-                challenges = parse_challenges_string(json.loads(response)["challenges"])
-                json.loads(response)["challenges"] = challenges
-            
-            # challenges가 리스트가 아닌 경우 처리
-            if not isinstance(json.loads(response).get("challenges"), list):
-                raise ValueError("challenges는 리스트 형태여야 합니다.")
-            
-            # 현재 카테고리 정보로 챌린지 데이터 업데이트
-            logger.info(f"Adding category info - eng: {eng_label}")
-            for challenge in json.loads(response)["challenges"]:
-                challenge["category"] = eng_label
-                logger.info(f"Added category info to challenge: {challenge['title']}")
-            
-            state["response"] = json.dumps(json.loads(response), ensure_ascii=False)
-            print(f"Final response with category: {category}, eng: {eng_label}")
-            
+            # JSON 파싱 시도
+            try:
+                response_text = full_response
+                if "```json" in response_text:
+                    response_text = response_text.split("```json")[1]
+                if "```" in response_text:
+                    response_text = response_text.split("```")[0]
+                response_text = response_text.strip()
+                
+                # JSON 파싱
+                parsed_response = json.loads(response_text)
+                print(f"Successfully parsed JSON response. Length: {len(response_text)}")
+                
+                # 필수 필드 검증
+                if "recommend" not in parsed_response or "challenges" not in parsed_response:
+                    raise ValueError("응답에 필수 필드가 없습니다.")
+                
+                # challenges가 문자열인 경우 배열로 변환
+                if isinstance(parsed_response.get("challenges"), str):
+                    challenges = parse_challenges_string(parsed_response["challenges"])
+                    parsed_response["challenges"] = challenges
+                
+                # challenges가 리스트가 아닌 경우 처리
+                if not isinstance(parsed_response.get("challenges"), list):
+                    raise ValueError("challenges는 리스트 형태여야 합니다.")
+                
+                # 현재 카테고리 정보로 챌린지 데이터 업데이트
+                for challenge in parsed_response["challenges"]:
+                    challenge["category"] = eng_label
+                
+                state["response"] = json.dumps(parsed_response, ensure_ascii=False)
+                print(f"Final response with category: {category}, eng: {eng_label}")
+                
+            except ValueError as e:
+                print(f"응답 검증 오류: {str(e)}")
+                state["error"] = str(e)
+                state["should_continue"] = False
+                return state
         else:
             print(f"응답 검증 오류: {state['error']}")
             state["response"] = json.dumps({
                 "recommend": "죄송합니다. 요청을 처리하는 중에 오류가 발생했습니다.",
                 "challenges": []
             }, ensure_ascii=False)
+        
+        # 대화 기록 업데이트 (비교 코드 방식으로 개선)
+        state["messages"] = list(state["messages"]) + [
+            f"User: {state['current_query']}",
+            f"Assistant: {state['response']}"
+        ]
         
         return state
         
@@ -530,85 +558,145 @@ chat_graph = create_chat_graph()
 conversation_states = {}
 
 def process_chat(sessionId: str, query: str, base_info_category: Optional[str] = None) -> str:
-    """대화 처리"""
-    try:
-        # 세션 상태 초기화 또는 가져오기
-        if sessionId not in conversation_states:
-            conversation_states[sessionId] = {
-                "messages": [],
-                "category": base_info_category,
-                "base_category": base_info_category
-            }
-        
-        # 현재 상태 가져오기
-        current_state = conversation_states[sessionId]
-        
-        # 토큰 수 체크 및 대화 기록 조정
-        messages = current_state["messages"]
-        while len(messages) > 2:  # 최소 1번의 대화는 유지
-            # 현재 메시지들로 프롬프트 구성
-            test_messages = "\n".join(messages)
-            test_prompt = custom_prompt.format(
-                context="",
-                query=query,
-                messages=test_messages,
-                category=current_state["category"]
-            )
+    """대화 처리 함수"""
+    print(f"\n=== Process Chat Start ===")
+    print(f"Initial base_info_category: {base_info_category}")
+    print(f"User query: {query}")
+    print(f"Session ID: {sessionId}")
+
+    # 이전 대화 상태 가져오기 또는 새로 생성
+    if sessionId not in conversation_states:
+        if not base_info_category:
+            raise ValueError("새로운 세션은 base-info에서 카테고리가 필요합니다.")
+        if base_info_category not in label_mapping:
+            raise ValueError(f"잘못된 카테고리 값: {base_info_category}")
             
-            # 토큰 수 체크
-            test_inputs = tokenizer(test_prompt, return_tensors="pt")
-            if test_inputs.input_ids.shape[1] <= 1800:  # 여유를 두고 1800 토큰으로 제한
-                break
-            
-            # 토큰 수가 많으면 가장 오래된 대화 제거 (2개씩: User + Assistant)
-            messages = messages[2:]
-        
-        # 조정된 메시지로 상태 업데이트
-        current_state["messages"] = messages
-        
-        # 새로운 상태 생성
-        state = {
-            "messages": current_state["messages"],
-            "current_query": query,
-            "context": "",
-            "response": "",
-            "should_continue": True,
+        print(f"New session detected. Initializing with category: {base_info_category}")
+        conversation_states[sessionId] = {
+            "messages": [],             # 대화 기록 
+            "current_query": "",        # 사용자가 입력한 현재 질문
+            "context": "",              # RAG 검색 자료
+            "response": "",             # LLM 최종응답 
+            "should_continue": True,    # 대화 진행 가능성 여부
             "error": None,
-            "docs": None,
+            "docs": None,               # 검색된 원본 문서 리스트 (Qdrant의 Document 객체들)
             "sessionId": sessionId,
-            "category": current_state["category"],
-            "base_category": current_state["base_category"]
+            "category": base_info_category,  # base-info 카테고리 저장 -> 사용자에 요청에 따라 변경되는 카테고리
+            "base_category": base_info_category  # 원본 카테고리도 저장
         }
+        # 초기 카테고리 설정 로그
+        conversation_states[sessionId]["messages"].append(f"Initial category set to {base_info_category}")
+    else:
+        print(f"현재 카테고리: {conversation_states[sessionId]['category']}")
+    
+    # 현재 상태 업데이트
+    state = conversation_states[sessionId]
+    state["current_query"] = query
+    print(f"Current state category before random: {state['category']}")
+
+    # 카테고리 변경 처리
+    category_changed = False
+
+    # 1. "원래 카테고리로" 요청 처리
+    if any(keyword in query.lower() for keyword in ["원래", "처음", "이전", "원래대로","기존"]):
+        if state["base_category"]:
+            state["category"] = state["base_category"]
+            state["messages"].append(f"Category restored to original: {state['base_category']}")
+            category_changed = True
+
+    # 2. "아무거나" 등의 요청 처리
+    elif any(keyword in query.lower() for keyword in ["아무", "아무거나", "다른거", "새로운거", "딴거", "다른"]):
+        available_categories = [cat for cat in label_mapping.keys() if cat != state["category"]]
+        if not available_categories:
+            available_categories = list(label_mapping.keys())
         
-        # 대화 그래프 실행
-        result = chat_graph.invoke(state)
-        
-        # 응답이 성공적으로 생성된 경우
-        if result["should_continue"] and result["response"]:
-            # 대화 기록 업데이트
-            current_state["messages"].append(f"User: {query}")
-            current_state["messages"].append(f"Assistant: {result['response']}")
+        sampled_category = random.choice(available_categories)
+        state["category"] = sampled_category
+        state["messages"].append(f"Category randomly selected: {sampled_category}")
+        category_changed = True
+
+    # 3. 특정 카테고리 요청 처리
+    else:
+        for category in label_mapping.keys():
+            if category in query:
+                state["category"] = category
+                state["messages"].append(f"Category changed to {category}")
+                category_changed = True
+                break
+
+    # 4. base-info 카테고리 처리
+    if not category_changed and base_info_category and state["category"] != base_info_category:
+        state["category"] = base_info_category
+        state["messages"].append(f"Category changed to {base_info_category}")
+        category_changed = True
+
+    print(f"State category before chat_graph: {state['category']}")
+
+    # 대화 그래프 실행
+    result = chat_graph.invoke(state)
+    
+    # 응답 생성 시 현재 카테고리 정보 포함
+    try:
+        if not result["response"]:
+            raise ValueError("응답이 비어있습니다.")
             
-            # 대화 기록이 너무 길어지면 오래된 메시지 제거 (더 엄격하게 제한)
-            if len(current_state["messages"]) > 6:  # 10개에서 6개로 줄임 (3번의 대화)
-                current_state["messages"] = current_state["messages"][-6:]
-            
-            return result["response"]
+        response_data = json.loads(result["response"])
+        current_category = result["category"]
+        print(f"Current category in result: {current_category}")
         
-        # 오류 발생 시
+        if current_category not in label_mapping:
+            raise ValueError(f"잘못된 카테고리 값: {current_category}")
+            
+        eng_label = label_mapping[current_category]
+        
+        # 챌린지 데이터에 현재 카테고리 정보 업데이트
+        if "challenges" in response_data:
+            for challenge in response_data["challenges"]:
+                challenge["category"] = eng_label
+        
+        # 업데이트된 응답으로 result 수정
+        result["response"] = json.dumps(response_data, ensure_ascii=False)
+        
+        # 상태 저장
+        conversation_states[sessionId] = result
+        print(f"Final state category: {result['category']}")
+        
         return result["response"]
+    except json.JSONDecodeError as e:
+        print(f"JSON 파싱 오류: {str(e)}")
+        print(f"Raw response: {result.get('response', '')}")
+        # 상태 저장
+        conversation_states[sessionId] = result
+        return json.dumps({
+            "recommend": "죄송합니다. 응답을 처리하는 중에 오류가 발생했습니다.",
+            "challenges": []
+        }, ensure_ascii=False)
+    except Exception as e:
+        print(f"Error in response processing: {str(e)}")
+        # 상태 저장
+        conversation_states[sessionId] = result
+        return json.dumps({
+            "recommend": "죄송합니다. 응답을 처리하는 중에 오류가 발생했습니다.",
+            "challenges": []
+        }, ensure_ascii=False)
     finally:
         # 메모리 정리
         shared_model.cleanup_memory()
         logger.info("process_chat 메모리 정리 완료")
 
 def clear_conversation(sessionId: str):
-    """대화 기록 초기화"""
+    """대화 기록 삭제"""
     if sessionId in conversation_states:
-        conversation_states[sessionId]["messages"] = []
+        del conversation_states[sessionId]
 
 def get_conversation_history(sessionId: str) -> List[str]:
-    """대화 기록 조회"""
+    """대화 기록 조회
+    Args:
+        sessionId: 사용자 세션 ID
+    
+    Returns:
+        List[str]: 대화 기록 리스트
+    """
     if sessionId in conversation_states:
         return conversation_states[sessionId]["messages"]
     return []
