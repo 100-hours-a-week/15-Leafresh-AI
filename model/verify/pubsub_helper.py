@@ -7,7 +7,7 @@ load_dotenv()
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 
 project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
-topic_id = os.getenv("PUBSUB_TOPIC")
+topic_id = os.getenv("PUBSUB_TOPIC_PROD")
 
 publisher = pubsub_v1.PublisherClient()
 topic_path = publisher.topic_path(project_id, topic_id)

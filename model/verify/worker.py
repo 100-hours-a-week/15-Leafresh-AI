@@ -10,7 +10,7 @@ load_dotenv()
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 
 project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
-subscription_id = os.getenv("PUBSUB_SUBSCRIPTION")
+subscription_id = os.getenv("PUBSUB_SUBSCRIPTION_PROD")
 
 subscription_path = f"projects/{project_id}/subscriptions/{subscription_id}"
 
