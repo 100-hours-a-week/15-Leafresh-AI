@@ -1,6 +1,6 @@
 # chatbot_router.py
 from ..model.chatbot.LLM_chatbot_base_info_model import base_prompt, get_llm_response as get_base_info_llm_response, base_parser
-from ..model.chatbot.LLM_chatbot_free_text_model import process_chat, clear_conversation, conversation_states, custom_prompt, get_llm_response as get_free_text_llm_response
+from ..model.chatbot.LLM_chatbot_free_text_model import process_chat, clear_conversation, conversation_states, custom_prompt, get_llm_response as get_free_text_llm_response, retriever
 from ..model.chatbot.chatbot_constants import label_mapping, ENV_KEYWORDS, BAD_WORDS
 from fastapi import APIRouter, Query, HTTPException
 from fastapi.responses import JSONResponse
@@ -93,7 +93,7 @@ async def select_category(
     )
 
     # SSE 응답 생성
-    async def event_generator():
+    def event_generator():
         try:
             # 세션 정보만 저장 (RAG 사용하지 않음)
             if sessionId and sessionId not in conversation_states:
@@ -143,6 +143,7 @@ async def select_category(
                                     "data": final_data
                                 }, ensure_ascii=False)
                             }
+                            return
                             
                         except Exception as e:
                             yield {
@@ -187,7 +188,8 @@ async def select_category(
 
     return EventSourceResponse(
         event_generator(),
-        media_type="text/event-stream"
+        media_type="text/event-stream",
+        ping= None 
     )
 
 # LangChain 기반 RAG 추천
@@ -197,35 +199,29 @@ async def freetext_rag(
     message: Optional[str] = Query(None)
 ):
     """
-    자유 채팅 입력을 기반으로 친환경 챌린지를 추천하는 SSE 엔드포인트
+    자유 채팅 입력을 기반으로 친환경 챌린지를 추천하는 SSE 엔드포인트 (직접 generate + streamer)
     """
     # URL 디코딩 추가
     if message:
         message = unquote(message)
-    
     # 입력값 검증
     if not message or not message.strip():
         return EventSourceResponse(
             event_generator_error("message는 필수입니다.", 400),
             media_type="text/event-stream"
         )
-
     if len(message.strip()) < 5:
         return EventSourceResponse(
             event_generator_error("message는 문자열이어야 하며, 최소 5자 이상의 문자열이어야 합니다.", 422),
             media_type="text/event-stream"
         )
-
     message_lower = message.lower()
-    
     # 카테고리 관련 요청 체크
     category_keywords = ["원래", "처음", "이전", "원래대로", "기존", "카테고리"]
     is_category_request = any(keyword in message_lower for keyword in category_keywords)
-    
     # 환경 관련 요청이 아니고, 카테고리 요청도 아닌 경우에만 기본 응답 (fallback 로직)
     is_env_related = any(k in message for k in ENV_KEYWORDS)
     contains_bad_words = any(b in message_lower for b in BAD_WORDS)
-
     async def event_generator():
         # 세션 초기화 (free-text는 대화 기록이 중요)
         if sessionId not in conversation_states:
@@ -234,26 +230,31 @@ async def freetext_rag(
                 "category": "제로웨이스트", # 기본값
                 "base_category": "제로웨이스트"
             }
-
         # fallback 조건 검사
         if not is_category_request and (not is_env_related or contains_bad_words):
-            fallback_response = {
-                "status": 200,
-                "message": "저는 친환경 챌린지를 추천해드리는 Leafresh 챗봇이에요! 환경 관련 질문을 해주시면 더 잘 도와드릴 수 있어요.",
-                "data": None
-            }
+            logger.info(f"Fallback triggered: {message}")
             yield {
                 "event": "error",
-                "data": json.dumps(fallback_response, ensure_ascii=False)
+                "data": json.dumps({
+                    "status": 200,
+                    "message": "저는 친환경 챌린지를 추천해드리는 Leafresh 챗봇이에요! 환경 관련 질문을 해주시면 더 잘 도와드릴 수 있어요.",
+                    "data": None
+                }, ensure_ascii=False)
             }
             return # fallback 메시지 전송 후 종료
 
-        # LLM 호출을 위한 프롬프트 구성
+        # 1. context 추출 (RAG)
         current_category = conversation_states[sessionId].get("category", "제로웨이스트")
         messages_history = "\n".join(conversation_states[sessionId]["messages"])
+        
+        # RAG 검색 수행
+        docs = retriever.get_relevant_documents(message)
+        context = "\n".join([doc.page_content for doc in docs])
+        logger.info(f"RAG 검색 완료. 문서 수: {len(docs)}")
+        logger.info(f"컨텍스트 길이: {len(context)}")
 
         prompt = custom_prompt.format(
-            context="",  # RAG는 현재 비활성화
+            context=context,  # RAG 활성화
             query=message,
             messages=messages_history,
             category=current_category
@@ -297,10 +298,11 @@ async def freetext_rag(
                         "event": "close",
                         "data": json.dumps({
                             "status": 200,
-                            "message": "모든 응답 완료",
+                            "message": "모든 챌린지 추천 완료",
                             "data": parsed_data_payload.get("data", None)
                         }, ensure_ascii=False)
                     }
+                    return
 
                 elif event_type == "error":
                     yield {
@@ -319,10 +321,15 @@ async def freetext_rag(
             }
             return
 
-    return EventSourceResponse(event_generator(), media_type="text/event-stream")
+    return EventSourceResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        ping= None 
+    )
 
 async def event_generator_error(message: str, status_code: int):
     """에러 이벤트를 생성하는 제너레이터"""
+    logger.error(f"SSE error event: {message} (status: {status_code})")
     yield {
         "event": "error",
         "data": json.dumps({
@@ -331,16 +338,3 @@ async def event_generator_error(message: str, status_code: int):
             "data": None
         }, ensure_ascii=False)
     }
-
-# # 세션 초기화 엔드포인트 추가 (필요 시)
-# @router.post("/ai/chatbot/clear-conversation")
-# async def clear_chat_history(sessionId: str = Query(...)):
-#     clear_conversation(sessionId)
-#     return JSONResponse(
-#         status_code=200,
-#         content={
-#             "status": 200,
-#             "message": f"Session {sessionId} 대화 기록이 초기화되었습니다.",
-#             "data": None
-#         }
-#     )
