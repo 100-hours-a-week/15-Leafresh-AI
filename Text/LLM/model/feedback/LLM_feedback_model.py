@@ -35,7 +35,7 @@ class FeedbackModel:
         logger.info("Feedback model initialized with shared model")
         
         # 한글 기준으로 5-6문장에 적절한 토큰 수로 조정 (약 250-300자)
-        self.max_tokens = 300
+        self.max_tokens = 500
         # 프롬프트 템플릿을 환경 변수에서 가져오거나 기본값 사용
         self.prompt_template = os.getenv("FEEDBACK_PROMPT_TEMPLATE",
         """
@@ -45,7 +45,7 @@ class FeedbackModel:
         3. 유니코드(Unicode) 표준에 포함된 이모지(예: 😊, 🌱, 🎉 등)를 적절히 사용하여 친근하고 밝은 톤으로 작성해주세요.
         4. 같은 의미의 문장을 반복하지 말고, 구체적이고 간결하게 작성하세요.
         5. 문장이 중간에 끊기지 않게 완결된 문장으로 작성하세요.
-        6. 무조건 전체 답변은 한글 기준 300자 이내로 작성하세요.
+        6. 무조건 전체 답변은 한글 기준 250자 이내로 작성하세요.
 
         개인 챌린지:
         {personal_challenges}
