@@ -39,7 +39,7 @@ logger.info("Using shared Mistral model for base-info chatbot")
 
 # base-info_response_schemas 정의
 base_response_schemas = [
-    ResponseSchema(name="recommend", description="추천 텍스트를 한글로 한 문장으로 출력해줘.(예: '이런 챌린지를 추천합니다.')"),
+    ResponseSchema(name="recommend", description="추천 텍스트를 한글로 한 문장으로 출력해주고 실제 줄바꿈(엔터)으로 구분해 주세요. (예: '이런 챌린지를 추천합니다.')"),
     ResponseSchema(name="challenges", description="추천 챌린지 리스트, 각 항목은 title, description 포함, description은 한글로 한 문장으로 요약해주세요.")
 ]
 
@@ -55,9 +55,9 @@ base_prompt = PromptTemplate(
 절대적으로 환경에 도움이 되는 챌린지를 아래 JSON 형식으로 3가지 추천해주세요.
 
 주의사항:
-1. 모든 속성 이름은 반드시 큰따옴표(")로 둘러싸야 합니다.
-2. 모든 문자열 값도 큰따옴표(")로 둘러싸야 합니다.
-3. recommend 필드에는 {{category}} 관련 추천 문구를 포함해야 합니다.
+1. 모든 속성 이름과 문자열 값은 반드시 큰따옴표(")로 둘러싸야 합니다.
+2. recommend 필드에는 {{category}} 관련 추천 문구를 포함해야 합니다.
+3. 각 title 내용은 번호를 붙이고, 실제 줄바꿈(엔터)으로 구분해 주세요.
 
 JSON 포맷:
 {escaped_format}
@@ -98,15 +98,20 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
             InfNanRemoveLogitsProcessor()
         ])
 
-        # 모델 생성 설정
+        # 모델 생성 설정: streamer쪽에 push만 하는 역할.(생성x)
         generation_kwargs = dict(
             inputs,  # 입력 텐서 (input_ids, attention_mask 등)
             streamer=streamer,  # 스트리밍 응답을 위한 TextIteratorStreamer 객체
-            max_new_tokens=1024,  # 모델이 생성할 수 있는 최대 토큰 수 (JSON이 완성되도록 충분히 설정)
-            temperature=0.7,  # 생성 다양성 조절 (0.0~1.0, 높을수록 더 다양한 응답)
-            do_sample=True,  # 확률적 샘플링 활성화 (temperature와 함께 사용)
+            max_new_tokens=1024,  # 토큰 수를 줄여서 안정성 향상
+            temperature=0.7,  # 더 낮은 temperature로 일관성 향상
+            do_sample=True,  # 확률적 샘플링 활성화
+            top_p=0.9,  # nucleus sampling 추가
+            top_k=50,  # top-k sampling 추가
+            repetition_penalty=1.1,  # 반복 방지
             pad_token_id=tokenizer.eos_token_id, # 패딩 토큰 ID 설정 (Mistral은 EOS 토큰을 패딩으로 사용)
-            logits_processor=logits_processor  
+            logits_processor=logits_processor,
+            eos_token_id=tokenizer.eos_token_id,  # EOS 토큰 명시적 설정
+            early_stopping=True  # 조기 중단 활성화
         )
         logger.info("스레드 시작 및 모델 생성 시작.")
         
@@ -134,8 +139,8 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                     cleaned_text = re.sub(r'["\']', '', cleaned_text)  # 따옴표 제거
                     cleaned_text = re.sub(r'[\[\]{}]', '', cleaned_text)  # 괄호 제거
                     cleaned_text = re.sub(r',\s*$', '', cleaned_text)  # 끝의 쉼표 제거
-                    # 불필요한 공백 제거
-                    cleaned_text = re.sub(r'\s+', ' ', cleaned_text)
+                    cleaned_text = re.sub(r'[ \t\r\f\v]+', ' ', cleaned_text)  # \n은 제거 안 함
+                    
                     cleaned_text = cleaned_text.strip()
                     
                     if cleaned_text:
@@ -174,15 +179,21 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                 if not json_string_to_parse.strip():
                     raise ValueError("JSON 문자열이 비어있습니다")
 
-                # JSON 파싱 전 문자열 정제
-                # 객체와 배열의 마지막 쉼표 제거
+                # 1. 객체와 배열의 마지막 쉼표 제거: {...,} → {...}
                 json_string_to_parse = re.sub(r',(\s*[}\]])', r'\1', json_string_to_parse)
-                # 불필요한 공백 제거
-                json_string_to_parse = re.sub(r'\s+', ' ', json_string_to_parse)
-                # 연속된 쉼표 제거
+
+                # 2. 연속된 쉼표 제거: "a",, "b" → "a", "b"
                 json_string_to_parse = re.sub(r',\s*,', ',', json_string_to_parse)
-                
-                # logger.info(f"정제된 JSON 문자열: {json_string_to_parse}")
+
+                # 3. 키와 값의 작은따옴표만 큰따옴표로 바꾸기
+                #    'recommend': → "recommend":
+                json_string_to_parse = re.sub(r"'(\w+)'\s*:", r'"\1":', json_string_to_parse)
+
+                #    "recommend": 'value' → "recommend": "value"
+                json_string_to_parse = re.sub(r':\s*\'([^\']*)\'', r': "\1"', json_string_to_parse)
+
+                # 4. 공백 정리
+                json_string_to_parse = re.sub(r'\s+', ' ', json_string_to_parse).strip()
 
                 # JSON 파싱
                 try:
