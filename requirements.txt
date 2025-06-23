@@ -104,6 +104,7 @@ pyparsing==3.2.3
 python-dateutil==2.9.0.post0
 pytz==2025.2
 PyYAML==6.0.2
+pymongo==4.13.0
 regex==2024.11.6
 rsa==4.9.1
 scikit-learn==1.6.1
