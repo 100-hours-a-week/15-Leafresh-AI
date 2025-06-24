@@ -20,6 +20,8 @@ from router.feedback_router import feedback_http_exception_handler
 
 from router.health_router import router as health_router
 
+from router.monitoring_router import router as monitoring_router, metrics_middleware
+
 load_dotenv()
 
 # worker를 main 실행할 때 지속적으로 실행되도록 변경 
@@ -32,12 +34,16 @@ async def lifespan(app: FastAPI):               # app 인자를 받는 형태가
 # app 초기화
 app = FastAPI(lifespan=lifespan)
 
+# 모니터링 미들웨어 등록
+app.middleware("http")(metrics_middleware)
+
 # router 등록
 app.include_router(verify_router)
 app.include_router(censorship_router)
 app.include_router(chatbot_router)
 app.include_router(feedback_router)
 app.include_router(health_router)
+app.include_router(monitoring_router)
 
 # censorship model exceptions (422, 500, 503 etc.)
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
@@ -75,3 +81,4 @@ async def global_http_exception_handler(request: Request, exc: HTTPException):
                 "data": None
             }
         )
+ 
