@@ -1,13 +1,16 @@
 # pip install -r requirements.txt
 # === FastAPI 서버 ===
-fastapi==0.110.0
+fastapi>=0.110.0
 uvicorn==0.27.1
 python-multipart==0.0.9
 python-dotenv==1.0.1
-pydantic==2.11.5
+pydantic>=2.11.0
 pydantic-settings==2.9.1
 pydantic_core==2.33.2
 starlette==0.36.3
+
+# === Langfuse for LLM Observability & Testing ===
+langfuse>=3.0.0
 
 # === 비동기 처리 & 웹 ===
 aiohttp==3.9.5
@@ -58,9 +61,10 @@ qdrant-client==1.10.1
 safetensors==0.5.3
 sentence-transformers==2.6.1
 tokenizers==0.21.1
-torch==2.7.0
+torch>=2.2.0
+torchvision>=0.17.0
 tqdm==4.66.2
-transformers==4.51.3
+transformers>=4.38.0
 xxhash==3.5.0
 zstandard==0.23.0
 
@@ -149,4 +153,4 @@ portalocker==2.10.1
 propcache==0.3.1
 proto-plus==1.26.1
 types-requests==2.32.0.20250515
-prometheus_client
+prometheus_client>=0.20.0
