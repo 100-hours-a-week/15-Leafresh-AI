@@ -32,7 +32,7 @@ def run_worker():
             challenge_name = data["challengeName"]
             challenge_info = data["challengeInfo"]
 
-            result = verifier.image_verify(os.getenv("BUCKET_NAME"), blob_name, challenge_type, challenge_id, challenge_name, challenge_info)
+            result = verifier.image_verify(os.getenv("BUCKET_NAME_DEV"), blob_name, challenge_type, challenge_id, challenge_name, challenge_info)
             
             # 로깅용
             print(f"인증 결과: {result}")
