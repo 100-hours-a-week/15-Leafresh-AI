@@ -56,6 +56,7 @@ class CallbackResult(BaseModel):
     type: str
     memberId: int
     challengeId: int
+    # verificationId: int
     date: str
     result: bool
 
