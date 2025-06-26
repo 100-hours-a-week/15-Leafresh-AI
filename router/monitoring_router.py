@@ -4,10 +4,15 @@ from starlette.responses import PlainTextResponse
 from starlette.requests import Request  # 통일
 
 from prometheus_client import (
-    generate_latest, Counter, Gauge, Histogram, collect_default_metrics
+    generate_latest, Counter, Gauge, Histogram, REGISTRY
 )
+from prometheus_client import process_collector, platform_collector
 
-collect_default_metrics() # Python 프로세스 기본 지표 수집
+# collector 등록은 이미 되어 있으면 생략
+if not any(type(c).__name__ == "ProcessCollector" for c in REGISTRY._collector_to_names):
+    process_collector.ProcessCollector()
+if not any(type(c).__name__ == "PlatformCollector" for c in REGISTRY._collector_to_names):
+    platform_collector.PlatformCollector()
    
 # API 요청 카운터: 엔드포인트, 메소드, 상태 코드를 라벨로 사용
 api_requests_total = Counter(
