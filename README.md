@@ -75,7 +75,7 @@ no. | Note | Mothod | Endpoint | Role
 
 ### v2 - CI/CD Architecture
 
-<img width="1000" alt="Leafresh_AI_아키텍처" src="https://github.com/user-attachments/assets/3979c999-945f-43f9-acdc-20739b0500d7" />
+<img width="1000" alt="v2_CI:CD_AI아키텍처" src="https://github.com/user-attachments/assets/00b6279e-65bc-4c8c-9332-614bc9536899" />
 
 <br>
 <br>
