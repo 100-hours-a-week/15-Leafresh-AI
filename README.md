@@ -75,8 +75,7 @@ no. | Note | Mothod | Endpoint | Role
 
 ### v2 - CI/CD Architecture
 
-<img width="1000" alt="v2_CI:CD_AI아키텍처" src="https://github.com/user-attachments/assets/91603c54-9a5d-4755-a13f-a4e7371c1b80" />
-
+<img width="1000" alt="v2_CI:CD_AI아키텍처" src="https://github.com/user-attachments/assets/2d8d5090-7c7a-434c-8aad-0d544d286e21" />
 
 <br>
 <br>
