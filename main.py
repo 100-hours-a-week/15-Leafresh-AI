@@ -20,7 +20,7 @@ from router.feedback_router import feedback_http_exception_handler
 
 from router.health_router import router as health_router
 
-from router.monitoring_router import router as monitoring_router, metrics_middleware
+from router.monitoring_router import router as monitoring_router, add_process_time_header
 
 load_dotenv()
 
@@ -35,7 +35,7 @@ async def lifespan(app: FastAPI):               # app 인자를 받는 형태가
 app = FastAPI(lifespan=lifespan)
 
 # 모니터링 미들웨어 등록
-app.middleware("http")(metrics_middleware)
+app.middleware("http")(add_process_time_header)
 
 # router 등록
 app.include_router(verify_router)

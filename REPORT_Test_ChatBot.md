@@ -33,7 +33,7 @@ CoT(Chain of Thought)는 LLM이 단계별로 사고 과정을 보여주면서 �
 
 1. **서버 실행**
    ```bash
-   python main.py
+   uvicorn main:app --port 8000
    ```
 
 2. **CoT 테스트 실행**

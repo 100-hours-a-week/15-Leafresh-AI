@@ -30,7 +30,7 @@ fi
 
 # 서버가 실행 중인지 확인
 echo "🔍 서버 상태를 확인합니다..."
-if curl -s http://localhost:8000/health > /dev/null; then
+if curl -s http://localhost:9000/health > /dev/null; then
     echo "✅ 서버가 실행 중입니다."
 else
     echo "⚠️  서버가 실행되지 않았습니다. 서버를 먼저 실행해주세요:"

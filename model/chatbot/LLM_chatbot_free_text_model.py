@@ -9,12 +9,14 @@ from langchain.output_parsers import StructuredOutputParser, ResponseSchema
 from langgraph.graph import StateGraph, END
 from typing import TypedDict, Annotated, Sequence, Optional, Dict, List
 from model.chatbot.chatbot_constants import label_mapping, ENV_KEYWORDS, BAD_WORDS
+from langfuse_config import langfuse_config
 import os
 import json
 import random
 import re
 
 load_dotenv()
+
 
 QDRANT_URL = os.getenv("QDRANT_URL")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
@@ -196,6 +198,22 @@ def generate_response(state: ChatState) -> ChatState:
             raise ValueError(f"잘못된 카테고리 값: {category}")
         eng_label, kor_label = label_mapping[category]
         
+        # Langfuse trace 생성
+        trace_id = langfuse_config.create_trace_id()
+        
+        # Langfuse generation 로깅
+        gen_id = langfuse_config.log_generation(
+            trace_id=trace_id,
+            name="free_text_response",
+            model="gemini-2.0-flash",
+            prompt=f"Context: {state['context']}\nQuery: {state['current_query']}\nMessages: {messages}\nCategory: {category}",
+            completion="",  # 나중에 업데이트
+            metadata={
+                "category": category,
+                "context_length": len(state["context"])
+            }
+        )
+        
         response = qa_chain.invoke({
             "context": state["context"], # RAG 정보
             "query": state["current_query"],
@@ -204,6 +222,12 @@ def generate_response(state: ChatState) -> ChatState:
         })
         
         print(f"Raw LLM response: {response['text']}")
+        
+        # Langfuse generation 업데이트
+        langfuse_config.log_generation(
+            id=gen_id,
+            completion=response["text"]
+        )
         
         # JSON 파싱 시도
         try:
@@ -242,10 +266,26 @@ def generate_response(state: ChatState) -> ChatState:
             state["response"] = json.dumps(parsed_response, ensure_ascii=False)
             print(f"Final response with category: {category}, eng: {eng_label}, kor: {kor_label}")
             
+            # Langfuse score 로깅 (성공)
+            langfuse_config.log_score(
+                trace_id=trace_id,
+                name="response_quality",
+                value=1.0,
+                comment="성공적으로 응답 생성됨"
+            )
+            
         except ValueError as e:
             print(f"응답 검증 오류: {str(e)}")
             state["error"] = str(e)
             state["should_continue"] = False
+            
+            # Langfuse score 로깅 (실패)
+            langfuse_config.log_score(
+                trace_id=trace_id,
+                name="response_quality",
+                value=0.0,
+                comment=f"응답 검증 실패: {str(e)}"
+            )
             return state
         
         # 대화 기록 업데이트
@@ -257,6 +297,15 @@ def generate_response(state: ChatState) -> ChatState:
         print(f"응답 생성 중 예외 발생: {str(e)}")
         state["error"] = f"응답 생성 중 오류 발생: {str(e)}"
         state["should_continue"] = False
+        
+        # Langfuse score 로깅 (예외)
+        if 'trace_id' in locals():
+            langfuse_config.log_score(
+                trace_id=trace_id,
+                name="response_quality",
+                value=0.0,
+                comment=f"예외 발생: {str(e)}"
+            )
     return state
 
 def handle_error(state: ChatState) -> ChatState:

@@ -7,23 +7,19 @@ import time
 from typing import Dict, Any, List
 import httpx
 from langfuse_config import langfuse_config, cot_evaluator
-from cot_test_data import get_all_test_cases, format_cot_prompt
+from cot_test_data import get_all_test_cases, format_cot_prompt, get_base_info_test_cases
+
+# import logging
+# logging.basicConfig(level=logging.DEBUG)
 
 class CoTTestRunner:
-    def __init__(self, base_url: str = "http://localhost:8000"):
+    def __init__(self, base_url: str = "http://localhost:9000"):
         self.base_url = base_url
         self.client = httpx.AsyncClient(timeout=30.0)
     
     async def run_base_info_test(self, test_case: Dict[str, Any]) -> Dict[str, Any]:
         """기본 정보 기반 테스트 실행"""
-        trace_id = langfuse_config.create_trace(
-            name=f"CoT_BaseInfo_Test_{test_case['id']}",
-            metadata={
-                "test_id": test_case["id"],
-                "category": test_case["category"],
-                "input": test_case["input"]
-            }
-        )
+        trace_id = langfuse_config.create_trace_id()
         
         try:
             # API 호출
@@ -68,14 +64,7 @@ class CoTTestRunner:
     
     async def run_free_text_test(self, test_case: Dict[str, Any]) -> Dict[str, Any]:
         """자유 텍스트 기반 테스트 실행"""
-        trace_id = langfuse_config.create_trace(
-            name=f"CoT_FreeText_Test_{test_case['id']}",
-            metadata={
-                "test_id": test_case["id"],
-                "category": test_case["category"],
-                "input": test_case["input"]
-            }
-        )
+        trace_id = langfuse_config.create_trace_id()
         
         try:
             # API 호출
@@ -144,11 +133,11 @@ class CoTTestRunner:
         
         # 종합 점수 계산
         weights = {
-            "thought_process": 0.4,
-            "reasoning_steps": 0.3,
-            "logical_flow": 0.2,
-            "completeness": 0.1
-        }
+            "thought_process": 0.4,    # 사고 과정 평가 (40%)
+            "reasoning_steps": 0.3,    # 추론 단계 평가 (30%) 
+            "logical_flow": 0.2,       # 논리적 흐름 평가 (20%)
+            "completeness": 0.1        # 응답 완성도 평가 (10%)
+            }
         
         total_score = sum(scores[key] * weights[key] for key in scores)
         scores["total"] = total_score
@@ -172,11 +161,11 @@ class CoTTestRunner:
         test_cases = get_all_test_cases()
         results = []
         
-        print(f"🚀 CoT 테스트 시작: {len(test_cases)}개 테스트 케이스")
+        print(f"CoT 테스트 시작: {len(test_cases)}개 테스트 케이스")
         print("=" * 50)
         
         for i, test_case in enumerate(test_cases, 1):
-            print(f"📝 테스트 {i}/{len(test_cases)}: {test_case['id']}")
+            print(f"테스트 {i}/{len(test_cases)}: {test_case['id']}")
             
             if test_case["category"] == "base_info":
                 result = await self.run_base_info_test(test_case)
@@ -188,19 +177,49 @@ class CoTTestRunner:
             # 결과 출력
             if result["status"] == "success":
                 scores = result["scores"]
-                print(f"✅ 성공 - 총점: {scores['total']:.3f}")
+                print(f"   성공 - 총점: {scores['total']:.3f}")
                 print(f"   사고과정: {scores['thought_process']:.3f}")
                 print(f"   추론단계: {scores['reasoning_steps']:.3f}")
                 print(f"   논리흐름: {scores['logical_flow']:.3f}")
                 print(f"   완성도: {scores['completeness']:.3f}")
             else:
-                print(f"❌ 실패: {result.get('error', 'Unknown error')}")
+                print(f" 실패: {result.get('error', 'Unknown error')}")
             
             print(f"   Trace ID: {result['trace_id']}")
             print("-" * 30)
             
             # 테스트 간 간격
             await asyncio.sleep(1)
+        
+        await self.client.aclose()
+        return results
+
+    async def run_base_info_tests_only(self) -> List[Dict[str, Any]]:
+        """Base-info 테스트만 실행 (빠른 테스트용)"""
+        test_cases = get_base_info_test_cases()
+        results = []
+        
+        print(f"Base-info 테스트 시작: {len(test_cases)}개 테스트 케이스")
+        print("=" * 50)
+        
+        for i, test_case in enumerate(test_cases, 1):
+            print(f"테스트 {i}/{len(test_cases)}: {test_case['id']} - {test_case['input']['location']} {test_case['input']['workType']} {test_case['input']['category']}")
+            
+            result = await self.run_base_info_test(test_case)
+            results.append(result)
+            
+            # 결과 출력
+            if result["status"] == "success":
+                scores = result["scores"]
+                print(f"   성공 - 총점: {scores['total']:.3f}")
+            else:
+                print(f" 실패: {result.get('error', 'Unknown error')}")
+            
+            print(f"   Trace ID: {result['trace_id']}")
+            print("-" * 30)
+            
+            # 테스트 간 간격 (빠른 테스트를 위해 0.5초로 단축)
+            await asyncio.sleep(0.5)
         
         await self.client.aclose()
         return results
@@ -213,13 +232,13 @@ class CoTTestRunner:
         report = f"""
 # CoT 테스트 결과 리포트
 
-## 📊 전체 통계
+## 전체 통계
 - 총 테스트: {len(results)}개
 - 성공: {len(successful_tests)}개
 - 실패: {len(failed_tests)}개
 - 성공률: {len(successful_tests)/len(results)*100:.1f}%
 
-## 🎯 성공한 테스트 상세 결과
+## 성공한 테스트 상세 결과
 """
         
         if successful_tests:
@@ -239,13 +258,13 @@ class CoTTestRunner:
         
         if failed_tests:
             report += f"""
-## ❌ 실패한 테스트
+## 실패한 테스트
 """
             for result in failed_tests:
                 report += f"- {result['test_id']}: {result.get('error', 'Unknown error')}\n"
         
         report += f"""
-## 🔗 Langfuse 대시보드
+## Langfuse 대시보드
 테스트 결과를 자세히 보려면 Langfuse 대시보드를 확인하세요.
 각 테스트의 Trace ID를 사용하여 개별 결과를 조회할 수 있습니다.
 """
@@ -254,10 +273,19 @@ class CoTTestRunner:
 
 async def main():
     """메인 실행 함수"""
+    import sys
+    
     runner = CoTTestRunner()
     
     try:
-        results = await runner.run_all_tests()
+        # 명령행 인수로 테스트 타입 선택
+        if len(sys.argv) > 1 and sys.argv[1] == "base-info-only":
+            print("Base-info 테스트만 실행합니다...")
+            results = await runner.run_base_info_tests_only()
+        else:
+            print("전체 테스트를 실행합니다...")
+            results = await runner.run_all_tests()
+        
         report = runner.generate_report(results)
         
         # 리포트 저장
@@ -265,12 +293,12 @@ async def main():
             f.write(report)
         
         print("\n" + "=" * 50)
-        print("📋 테스트 완료! 결과가 cot_test_report.md에 저장되었습니다.")
+        print("테스트 완료! 결과가 cot_test_report.md에 저장되었습니다.")
         print("=" * 50)
         print(report)
         
     except Exception as e:
-        print(f"❌ 테스트 실행 중 오류 발생: {e}")
+        print(f"테스트 실행 중 오류 발생: {e}")
 
 if __name__ == "__main__":
     asyncio.run(main()) 

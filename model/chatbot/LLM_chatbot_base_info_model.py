@@ -7,6 +7,7 @@ from google.oauth2 import service_account
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
+from langfuse_config import langfuse_config
 import os
 import json
 
@@ -53,6 +54,7 @@ JSON 포맷:
 # base-info_Output Parser 정의
 def get_llm_response(prompt):
     try:
+        trace_id = langfuse_config.create_trace_id()
         model = GenerativeModel(model_name=MODEL_NAME)
         response = model.generate_content(prompt)
 
