@@ -18,21 +18,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# 공유 모델 사용
-model = shared_model.model
-tokenizer = shared_model.tokenizer
-
-logger.info("Using shared Mistral model for feedback")
+logger.info("Feedback model module loaded (lazy loading)")
 
 class FeedbackModel:
     def __init__(self):
         load_dotenv()
         
-        # 공유 모델 사용으로 변경
-        self.model = model
-        self.tokenizer = tokenizer
+        # 지연 로딩: 실제 사용할 때만 모델 로드
+        self._model = None
+        self._tokenizer = None
         
-        logger.info("Feedback model initialized with shared model")
+        logger.info("Feedback model initialized with shared model (lazy loading)")
         
         # 한글 기준으로 5-6문장에 적절한 토큰 수로 조정 (약 250-300자)
         self.max_tokens = 500
@@ -53,6 +49,18 @@ class FeedbackModel:
         단체 챌린지:
         {group_challenges}
         """)
+
+    @property
+    def model(self):
+        if self._model is None:
+            self._model = shared_model.model
+        return self._model
+    
+    @property
+    def tokenizer(self):
+        if self._tokenizer is None:
+            self._tokenizer = shared_model.tokenizer
+        return self._tokenizer
 
     def _is_within_last_week(self, date_str: str) -> bool:
         """주어진 날짜가 최근 일주일 이내인지 확인"""
