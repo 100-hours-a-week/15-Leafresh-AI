@@ -223,9 +223,9 @@ def generate_response(state: ChatState) -> ChatState:
         
         print(f"Raw LLM response: {response['text']}")
         
-        # Langfuse generation 업데이트
-        langfuse_config.log_generation(
-            id=gen_id,
+        # Langfuse generation 업데이트 - 올바른 메서드 사용
+        langfuse_config.update_generation(
+            generation_id=gen_id,
             completion=response["text"]
         )
         
@@ -351,6 +351,31 @@ chat_graph = create_chat_graph()
 
 # 대화 상태 저장소
 conversation_states: Dict[str, ChatState] = {}
+
+def save_base_info_session(sessionId: str, category: str, location: str, workType: str):
+    """Base-info 정보만 세션에 저장 (RAG 검색 없이)"""
+    if sessionId not in conversation_states:
+        conversation_states[sessionId] = {
+            "messages": [],
+            "current_query": "",
+            "context": "",
+            "response": "",
+            "should_continue": True,
+            "error": None,
+            "docs": None,
+            "sessionId": sessionId,
+            "category": category,
+            "base_category": category
+        }
+    else:
+        # 기존 세션이 있으면 카테고리만 업데이트
+        conversation_states[sessionId]["category"] = category
+        conversation_states[sessionId]["base_category"] = category
+    
+    # 세션 정보만 업데이트 (RAG 검색 없이)
+    state = conversation_states[sessionId]
+    state["messages"].append(f"Base-info: 카테고리={category}, 위치={location}, 직업={workType}")
+    print(f"Base-info 세션 저장 완료: {sessionId}, 카테고리={category}")
 
 def process_chat(sessionId: str, query: str, base_info_category: Optional[str] = None) -> str:
     """대화 처리 함수"""

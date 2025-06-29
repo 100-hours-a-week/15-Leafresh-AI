@@ -1,6 +1,6 @@
 # chatbot_router.py
 from model.chatbot.LLM_chatbot_base_info_model import base_prompt, get_llm_response
-from model.chatbot.LLM_chatbot_free_text_model import qa_chain, retriever, process_chat, clear_conversation, conversation_states
+from model.chatbot.LLM_chatbot_free_text_model import qa_chain, retriever, process_chat, clear_conversation, conversation_states, save_base_info_session
 from model.chatbot.chatbot_constants import label_mapping, ENV_KEYWORDS, BAD_WORDS
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
@@ -51,8 +51,10 @@ def select_category(req: CategoryRequest):
 
     try:
         parsed = get_llm_response(prompt)
+        # RAG 사용하지 않음 - 세션 정보만 저장
         if req.sessionId:
-            process_chat(req.sessionId, f"카테고리: {req.category}, 위치: {req.location}, 직업: {req.workType}", base_info_category=req.category)
+            save_base_info_session(req.sessionId, req.category, req.location, req.workType)
+        
         if req.category not in label_mapping:
             return JSONResponse(
                 status_code=400,
