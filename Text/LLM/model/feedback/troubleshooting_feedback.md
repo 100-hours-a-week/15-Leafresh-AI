@@ -134,3 +134,148 @@ redis-cli ping
 - Redis, 워커, FastAPI 서버가 모두 실행 중이어야 정상 동작
 - 장애 복구, 확장성, 분산 처리에 유리
 - 운영 환경에서는 Redis 보안 설정, 모니터링, 백업 등 추가 고려 필요
+
+# 2025-06-29
+
+## 주요 변경사항: 통합 모델 아키텍처 최적화
+
+### 1. 모델 서비스 분리 제거 및 통합 구조 채택
+- 기존에 제안했던 별도 모델 서비스(`model_service.py`) 제거
+- **shared_model** 싱글톤 패턴을 통한 통합 모델 관리 구조 채택
+- FastAPI 서버 시작 시 4비트 양자화된 Mistral 모델이 메모리에 로드되어 모든 기능에서 공유
+
+### 2. 현재 아키텍처 구조
+```
+FastAPI 서버 (포트 8000)
+    ↓
+shared_model (4비트 양자화된 Mistral-7B-Instruct-v0.3)
+    ↓
+├── 챗봇 기능 (base-info, free-text)
+├── 피드백 기능 (feedback generation)
+└── 검열 기능 (별도 모델 사용)
+```
+
+### 3. FastAPI 서버 실행 방법
+
+#### 3.1 기본 실행
+```bash
+# 프로젝트 루트 디렉토리에서
+cd /home/ubuntu/15-Leafresh-AI/Text/LLM
+
+# FastAPI 서버 실행
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+#### 3.2 백그라운드 실행
+```bash
+# 백그라운드에서 실행
+nohup uvicorn main:app --host 0.0.0.0 --port 8000 > fastapi.log 2>&1 &
+
+# 프로세스 확인
+ps aux | grep uvicorn
+
+# 로그 확인
+tail -f fastapi.log
+```
+
+#### 3.3 서버 중지
+```bash
+# 프로세스 ID 찾기
+ps aux | grep uvicorn
+
+# 프로세스 종료
+kill <process_id>
+
+# 또는 강제 종료
+kill -9 <process_id>
+```
+
+### 4. 전체 시스템 실행 순서
+
+#### 4.1 필수 서비스 시작 순서
+```bash
+# 1. Redis 서버 시작
+sudo service redis-server start
+
+# 2. FastAPI 서버 시작 (모델 자동 로드)
+cd /home/ubuntu/15-Leafresh-AI/Text/LLM
+uvicorn main:app --host 0.0.0.0 --port 8000
+
+# 3. RQ 워커 시작 (새 터미널에서)
+cd /home/ubuntu/15-Leafresh-AI/Text/LLM
+rq worker feedback
+```
+
+#### 4.2 서비스 상태 확인
+```bash
+# Redis 상태 확인
+redis-cli ping
+
+# FastAPI 서버 상태 확인
+curl http://localhost:8000/docs
+
+# RQ 워커 상태 확인 (로그에서 확인)
+```
+
+### 5. 모델 로딩 최적화
+
+#### 5.1 지연 로딩 (Lazy Loading)
+- FastAPI 서버 시작 시 모델이 즉시 로드되지 않음
+- 첫 번째 요청 시에만 모델 로드 (메모리 효율성)
+- `shared_model`의 `@property` 데코레이터를 통한 지연 로딩
+
+#### 5.2 메모리 관리
+```python
+# 모델 사용 후 메모리 정리
+shared_model.cleanup_memory()
+
+# GPU 메모리 캐시 정리
+torch.cuda.empty_cache()
+gc.collect()
+```
+
+### 6. 성능 및 효율성 개선
+
+#### 6.1 메모리 사용량
+- 4비트 양자화로 메모리 사용량 약 4GB
+- CPU 오프로드 지원으로 메모리 부족 시 자동 조정
+- 모든 기능에서 동일한 모델 인스턴스 공유
+
+#### 6.2 응답 속도
+- 모델 로딩 시간 제거 (이미 메모리에 로드됨)
+- HTTP 통신 오버헤드 제거 (별도 서비스 없음)
+- 직접 모델 호출로 빠른 응답
+
+### 7. 장점 및 특징
+
+#### 7.1 아키텍처 장점
+- **단순성**: 하나의 서버에서 모든 기능 처리
+- **효율성**: 모델 중복 로드 없음
+- **안정성**: 프로세스 간 통신 오류 가능성 없음
+- **확장성**: RQ 워커를 통한 비동기 처리
+
+#### 7.2 운영 장점
+- **모니터링 용이**: 단일 서버에서 모든 로그 확인 가능
+- **배포 간단**: 하나의 애플리케이션만 배포
+- **리소스 효율**: 메모리 및 CPU 사용량 최적화
+
+### 8. 테스트 방법
+
+#### 8.1 전체 시스템 테스트
+```bash
+# 1. 모든 서비스 실행 확인
+redis-cli ping  # PONG
+curl http://localhost:8000/docs  # FastAPI 문서 접근 가능
+
+# 2. 피드백 생성 테스트
+curl -X POST http://localhost:8000/ai/feedback \
+  -H "Content-Type: application/json" \
+  -d @test_ai_feedback.json
+
+# 3. RQ 워커에서 작업 처리 확인 (로그에서)
+```
+
+#### 8.2 모델 공유 확인
+- 챗봇과 피드백 기능이 동일한 모델 사용
+- 메모리 사용량이 일정하게 유지됨
+- 모델 로딩 로그가 한 번만 출력됨

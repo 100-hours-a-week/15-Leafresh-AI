@@ -11,7 +11,7 @@ import httpx # httpx 라이브러리 임포트
 import os # 환경 변수 로드를 위해 os 임포트
 from rq import Queue
 from redis import Redis
-from ..model.feedback.tasks import generate_feedback_task
+from Text.LLM.model.feedback.tasks import generate_feedback_task
 
 router = APIRouter()
 
@@ -110,7 +110,7 @@ async def create_feedback(request: FeedbackRequest):
     #         print(f"백그라운드 피드백 생성/전송 중 예상치 못한 오류 발생: {e}")
 
     # 유효한 요청인 경우, 즉시 202 Accepted 응답 반환
-    job = feedback_queue.enqueue(generate_feedback_task, request.model_dump())
+    job = feedback_queue.enqueue('Text.LLM.model.feedback.tasks.generate_feedback_task', request.model_dump())
     return JSONResponse(
         status_code=202,
         content={
