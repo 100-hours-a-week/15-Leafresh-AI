@@ -35,6 +35,24 @@ class LangfuseConfig:
         )
         return generation.id
     
+    def update_generation(self, generation_id: str, completion: str, metadata=None):
+        """기존 generation 업데이트"""
+        try:
+            # Langfuse 3.x에서는 generation을 직접 업데이트할 수 없으므로
+            # 새로운 generation을 생성하거나 span으로 처리
+            # 여기서는 간단히 span으로 처리
+            self.langfuse.create_span(
+                trace_id=None,  # generation_id에서 추출 불가능하므로 None
+                name="generation_update",
+                input={"original_generation_id": generation_id},
+                output={"updated_completion": completion},
+                metadata=metadata or {}
+            )
+        except Exception as e:
+            print(f"Generation update failed: {e}")
+            # 실패해도 계속 진행
+            pass
+    
     def log_score(self, trace_id: str, name: str, value: float, comment: str = None, metadata=None):
         # trace_id로 score 생성
         self.langfuse.create_score(

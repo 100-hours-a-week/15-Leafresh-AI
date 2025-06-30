@@ -68,11 +68,12 @@ def get_expected_keywords_for_category(category: str) -> List[str]:
     }
     return category_keywords.get(category, ["환경", "친환경", "지속가능"])
 
-# Free-text 테스트 케이스들 (기존 유지)
+# Free-text 테스트 케이스들 (RAG 있음 + RAG 없음)
 FREE_TEXT_TEST_CASES = [
     {
         "id": "test_129",
         "category": "free_text",
+        "rag_enabled": True,  # RAG 사용
         "input": {
             "sessionId": "cot_test_session_129",
             "message": "집에서 탄소발자국을 줄이고 싶어요"
@@ -103,8 +104,72 @@ JSON 형태로 응답해주세요:
     {
         "id": "test_130",
         "category": "free_text",
+        "rag_enabled": True,  # RAG 사용
         "input": {
             "sessionId": "cot_test_session_130",
+            "message": "일회용품 사용을 줄이고 싶은데 어떻게 해야 할까요?"
+        },
+        "expected_keywords": ["일회용품", "줄이기", "재사용", "플라스틱", "환경"],
+        "cot_prompt": """
+사용자의 메시지를 분석하고 친환경 챌린지를 추천해주세요.
+사용자 메시지: {message}
+
+단계별로 생각해보세요:
+1. 일회용품이 환경에 미치는 영향을 생각해보세요
+2. 일상에서 일회용품을 대체할 수 있는 방법들을 찾아보세요
+3. 구체적이고 실천 가능한 행동들을 정리해보세요
+4. 사용자에게 단계별 챌린지를 제안해보세요
+
+JSON 형태로 응답해주세요:
+{{
+    "recommend": "추천 이유와 함께 설명",
+    "challenges": [
+        {{
+            "title": "챌린지 제목",
+            "description": "구체적인 설명"
+        }}
+    ]
+}}
+"""
+    },
+    # RAG 없는 free-text 테스트 케이스들
+    {
+        "id": "test_131",
+        "category": "free_text_no_rag",
+        "rag_enabled": False,  # RAG 사용 안함
+        "input": {
+            "sessionId": "cot_test_session_131",
+            "message": "집에서 탄소발자국을 줄이고 싶어요"
+        },
+        "expected_keywords": ["탄소", "발자국", "집", "줄이기", "환경"],
+        "cot_prompt": """
+사용자의 메시지를 분석하고 친환경 챌린지를 추천해주세요.
+사용자 메시지: {message}
+
+단계별로 생각해보세요:
+1. 사용자가 원하는 것이 무엇인지 파악해보세요
+2. 탄소발자국을 줄일 수 있는 방법들을 생각해보세요
+3. 집에서 실천 가능한 구체적인 행동들을 정리해보세요
+4. 사용자에게 가장 적합한 챌린지를 추천해보세요
+
+JSON 형태로 응답해주세요:
+{{
+    "recommend": "추천 이유와 함께 설명",
+    "challenges": [
+        {{
+            "title": "챌린지 제목",
+            "description": "구체적인 설명"
+        }}
+    ]
+}}
+"""
+    },
+    {
+        "id": "test_132",
+        "category": "free_text_no_rag",
+        "rag_enabled": False,  # RAG 사용 안함
+        "input": {
+            "sessionId": "cot_test_session_132",
             "message": "일회용품 사용을 줄이고 싶은데 어떻게 해야 할까요?"
         },
         "expected_keywords": ["일회용품", "줄이기", "재사용", "플라스틱", "환경"],

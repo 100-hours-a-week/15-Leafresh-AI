@@ -1,4 +1,4 @@
-"""
+ """
 CoT(Chain of Thought) 테스트 실행 스크립트
 """
 import asyncio
@@ -22,11 +22,12 @@ class CoTTestRunner:
         trace_id = langfuse_config.create_trace_id()
         
         try:
-            # API 호출
+            start_time = time.time()
             response = await self.client.post(
                 f"{self.base_url}/ai/chatbot/recommendation/base-info",
                 json=test_case["input"]
             )
+            latency = time.time() - start_time
             
             if response.status_code == 200:
                 result = response.json()
@@ -43,7 +44,8 @@ class CoTTestRunner:
                     "trace_id": trace_id,
                     "response": recommendation,
                     "scores": scores,
-                    "api_response": result
+                    "api_response": result,
+                    "latency": latency
                 }
             else:
                 return {
@@ -51,7 +53,8 @@ class CoTTestRunner:
                     "status": "error",
                     "trace_id": trace_id,
                     "error": f"API Error: {response.status_code}",
-                    "response_text": response.text
+                    "response_text": response.text,
+                    "latency": latency
                 }
                 
         except Exception as e:
@@ -59,7 +62,8 @@ class CoTTestRunner:
                 "test_id": test_case["id"],
                 "status": "error",
                 "trace_id": trace_id,
-                "error": str(e)
+                "error": str(e),
+                "latency": None
             }
     
     async def run_free_text_test(self, test_case: Dict[str, Any]) -> Dict[str, Any]:
@@ -67,11 +71,12 @@ class CoTTestRunner:
         trace_id = langfuse_config.create_trace_id()
         
         try:
-            # API 호출
+            start_time = time.time()
             response = await self.client.post(
                 f"{self.base_url}/ai/chatbot/recommendation/free-text",
                 json=test_case["input"]
             )
+            latency = time.time() - start_time
             
             if response.status_code == 200:
                 result = response.json()
@@ -88,7 +93,9 @@ class CoTTestRunner:
                     "trace_id": trace_id,
                     "response": recommendation,
                     "scores": scores,
-                    "api_response": result
+                    "api_response": result,
+                    "rag_enabled": test_case.get("rag_enabled", True),
+                    "latency": latency
                 }
             else:
                 return {
@@ -96,7 +103,9 @@ class CoTTestRunner:
                     "status": "error",
                     "trace_id": trace_id,
                     "error": f"API Error: {response.status_code}",
-                    "response_text": response.text
+                    "response_text": response.text,
+                    "rag_enabled": test_case.get("rag_enabled", True),
+                    "latency": latency
                 }
                 
         except Exception as e:
@@ -104,7 +113,64 @@ class CoTTestRunner:
                 "test_id": test_case["id"],
                 "status": "error",
                 "trace_id": trace_id,
-                "error": str(e)
+                "error": str(e),
+                "rag_enabled": test_case.get("rag_enabled", True),
+                "latency": None
+            }
+    
+    async def run_free_text_no_rag_test(self, test_case: Dict[str, Any]) -> Dict[str, Any]:
+        """RAG 없는 자유 텍스트 테스트 실행"""
+        trace_id = langfuse_config.create_trace_id()
+        
+        try:
+            start_time = time.time()
+            response = await self.client.post(
+                f"{self.base_url}/ai/chatbot/recommendation/free-text",
+                json={
+                    **test_case["input"],
+                    "no_rag": True  # RAG 비활성화 플래그
+                }
+            )
+            latency = time.time() - start_time
+            
+            if response.status_code == 200:
+                result = response.json()
+                recommendation = result.get("data", {}).get("recommend", "")
+                
+                # CoT 평가 실행
+                scores = await self.evaluate_cot_response(
+                    trace_id, recommendation, test_case["expected_keywords"]
+                )
+                
+                return {
+                    "test_id": test_case["id"],
+                    "status": "success",
+                    "trace_id": trace_id,
+                    "response": recommendation,
+                    "scores": scores,
+                    "api_response": result,
+                    "rag_enabled": False,
+                    "latency": latency
+                }
+            else:
+                return {
+                    "test_id": test_case["id"],
+                    "status": "error",
+                    "trace_id": trace_id,
+                    "error": f"API Error: {response.status_code}",
+                    "response_text": response.text,
+                    "rag_enabled": False,
+                    "latency": latency
+                }
+                
+        except Exception as e:
+            return {
+                "test_id": test_case["id"],
+                "status": "error",
+                "trace_id": trace_id,
+                "error": str(e),
+                "rag_enabled": False,
+                "latency": None
             }
     
     async def evaluate_cot_response(self, trace_id: str, response: str, expected_keywords: List[str]) -> Dict[str, float]:
@@ -169,15 +235,20 @@ class CoTTestRunner:
             
             if test_case["category"] == "base_info":
                 result = await self.run_base_info_test(test_case)
-            else:
+            elif test_case["category"] == "free_text":
                 result = await self.run_free_text_test(test_case)
+            elif test_case["category"] == "free_text_no_rag":
+                result = await self.run_free_text_no_rag_test(test_case)
+            else:
+                result = await self.run_free_text_test(test_case)  # 기본값
             
             results.append(result)
             
             # 결과 출력
             if result["status"] == "success":
                 scores = result["scores"]
-                print(f"   성공 - 총점: {scores['total']:.3f}")
+                rag_info = f" (RAG: {'O' if result.get('rag_enabled', True) else 'X'})"
+                print(f"   성공 - 총점: {scores['total']:.3f}{rag_info}")
                 print(f"   사고과정: {scores['thought_process']:.3f}")
                 print(f"   추론단계: {scores['reasoning_steps']:.3f}")
                 print(f"   논리흐름: {scores['logical_flow']:.3f}")
@@ -229,6 +300,21 @@ class CoTTestRunner:
         successful_tests = [r for r in results if r["status"] == "success"]
         failed_tests = [r for r in results if r["status"] == "error"]
         
+        # RAG 유무별 분류
+        base_info_tests = [r for r in successful_tests if "base_info" in r.get("test_id", "")]
+        free_text_rag_tests = [r for r in successful_tests if r.get("rag_enabled", True) and "free_text" in r.get("test_id", "")]
+        free_text_no_rag_tests = [r for r in successful_tests if not r.get("rag_enabled", True) and "free_text" in r.get("test_id", "")]
+        
+        # latency 통계
+        all_latencies = [r["latency"] for r in successful_tests if r["latency"] is not None]
+        base_latencies = [r["latency"] for r in base_info_tests if r["latency"] is not None]
+        rag_latencies = [r["latency"] for r in free_text_rag_tests if r["latency"] is not None]
+        norag_latencies = [r["latency"] for r in free_text_no_rag_tests if r["latency"] is not None]
+        def latency_stats(latencies):
+            if not latencies:
+                return "N/A"
+            return f"{sum(latencies)/len(latencies):.2f}s (min: {min(latencies):.2f}s, max: {max(latencies):.2f}s)"
+        
         report = f"""
 # CoT 테스트 결과 리포트
 
@@ -237,6 +323,12 @@ class CoTTestRunner:
 - 성공: {len(successful_tests)}개
 - 실패: {len(failed_tests)}개
 - 성공률: {len(successful_tests)/len(results)*100:.1f}%
+- 평균 응답 속도: {latency_stats(all_latencies)}
+
+## 테스트 타입별 통계
+- Base-info 테스트: {len(base_info_tests)}개 (평균 속도: {latency_stats(base_latencies)})
+- Free-text (RAG 있음): {len(free_text_rag_tests)}개 (평균 속도: {latency_stats(rag_latencies)})
+- Free-text (RAG 없음): {len(free_text_no_rag_tests)}개 (평균 속도: {latency_stats(norag_latencies)})
 
 ## 성공한 테스트 상세 결과
 """
@@ -245,23 +337,38 @@ class CoTTestRunner:
             total_scores = [r["scores"]["total"] for r in successful_tests]
             avg_score = sum(total_scores) / len(total_scores)
             
+            # RAG 유무별 평균 점수
+            if base_info_tests:
+                base_info_avg = sum(r["scores"]["total"] for r in base_info_tests) / len(base_info_tests)
+                report += f"\n### Base-info 평균 점수: {base_info_avg:.3f}"
+            
+            if free_text_rag_tests:
+                free_text_rag_avg = sum(r["scores"]["total"] for r in free_text_rag_tests) / len(free_text_rag_tests)
+                report += f"\n### Free-text (RAG 있음) 평균 점수: {free_text_rag_avg:.3f}"
+            
+            if free_text_no_rag_tests:
+                free_text_no_rag_avg = sum(r["scores"]["total"] for r in free_text_no_rag_tests) / len(free_text_no_rag_tests)
+                report += f"\n### Free-text (RAG 없음) 평균 점수: {free_text_no_rag_avg:.3f}"
+            
             report += f"""
-### 평균 점수: {avg_score:.3f}
+### 전체 평균 점수: {avg_score:.3f}
 
-| 테스트 ID | 총점 | 사고과정 | 추론단계 | 논리흐름 | 완성도 | Trace ID |
-|-----------|------|----------|----------|----------|--------|----------|
+| 테스트 ID | 총점 | 사고과정 | 추론단계 | 논리흐름 | 완성도 | RAG | Latency(s) | Trace ID |
+|-----------|------|----------|----------|----------|--------|-----|------------|----------|
 """
             
             for result in successful_tests:
                 scores = result["scores"]
-                report += f"| {result['test_id']} | {scores['total']:.3f} | {scores['thought_process']:.3f} | {scores['reasoning_steps']:.3f} | {scores['logical_flow']:.3f} | {scores['completeness']:.3f} | {result['trace_id']} |\n"
+                rag_status = "O" if result.get("rag_enabled", True) else "X"
+                latency = f"{result['latency']:.2f}" if result["latency"] is not None else "N/A"
+                report += f"| {result['test_id']} | {scores['total']:.3f} | {scores['thought_process']:.3f} | {scores['reasoning_steps']:.3f} | {scores['logical_flow']:.3f} | {scores['completeness']:.3f} | {rag_status} | {latency} | {result['trace_id']} |\n"
         
         if failed_tests:
             report += f"""
 ## 실패한 테스트
 """
             for result in failed_tests:
-                report += f"- {result['test_id']}: {result.get('error', 'Unknown error')}\n"
+                report += f"- {result['test_id']}: {result.get('error', 'Unknown error')} (Latency: {result.get('latency', 'N/A')})\n"
         
         report += f"""
 ## Langfuse 대시보드
