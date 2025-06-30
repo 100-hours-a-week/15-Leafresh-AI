@@ -23,7 +23,7 @@
 분류 | 사용 기술
 -- | --
 AI Model | `Vertex AI (Gemini-2.0-flash) API`, `LLaVA-13B`, `Mistral-7B`, `HyperClovax-1.5B`
-Server | `Python`, `FastAPI`, `Cloud Pub/Sub`, `GCS`, `SSE`, `MongoDB`
+Server | `Python`, `FastAPI`, `Cloud Pub/Sub`, `GCS`, `SSE`, `MongoDB`, `Redis`
 LLM Orchestration | `LangChain`, `RAG`, `VectorDB (QdrantDB)`
 
 <br>
