@@ -1,5 +1,4 @@
 from dotenv import load_dotenv
-
 from fastapi import FastAPI
 
 import threading
@@ -9,6 +8,10 @@ from model.verify.worker import run_worker
 from router.verify_router import router as verify_router
 from router.health_router import router as health_router
 # from router.llava_router import router as llava_router
+
+from fastapi.exceptions import RequestValidationError, HTTPException
+from router.censorship_router import router as censorship_router
+from router.censorship_router import validation_exception_handler, http_exception_handler
 
 load_dotenv()
 
@@ -24,6 +27,11 @@ async def lifespan(app: FastAPI):               # app 인자를 받는 형태가
 app = FastAPI(lifespan=lifespan)
 
 # router 등록
+app.include_router(censorship_router)
 app.include_router(verify_router)
 app.include_router(health_router)
 # app.include_router(llava_router)
+
+# censorship model exceptions (422, 500, 503 etc.)
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
+app.add_exception_handler(HTTPException, http_exception_handler)
