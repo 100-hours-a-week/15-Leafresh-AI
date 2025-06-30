@@ -12,7 +12,7 @@ class CensorshipModel :
     def __init__(self):
         load_dotenv()
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-        init(project="leafresh-dev2", location="us-central1")
+        init(project=os.getenv("GOOGLE_CLOUD_PROJECT"), location="us-central1")
         self.model = GenerativeModel("gemini-2.0-flash")
 
     def validate(self, challenge_name: str, start_date: str, end_date: str, existing: List[dict]):

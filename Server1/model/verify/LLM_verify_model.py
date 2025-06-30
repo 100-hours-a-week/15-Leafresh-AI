@@ -17,7 +17,7 @@ from model.verify.group_prompt_generator import get_or_create_group_prompt
 from model.verify.personal_challenge_prompt import personal_challenge_prompts
 
 class ImageVerifyModel :
-    def __init__(self, credential_env="GOOGLE_APPLICATION_CREDENTIALS", project_id="leafresh-dev2", region="us-central1"): 
+    def __init__(self, credential_env="GOOGLE_APPLICATION_CREDENTIALS", project_id=os.getenv("GOOGLE_CLOUD_PROJECT"), region="us-central1"): 
         # 환경변수 로드 및 인증 초기화
         load_dotenv()
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv(credential_env)
