@@ -8,9 +8,9 @@ from model.verify.worker import run_worker
 from router.verify_router import router as verify_router
 from router.health_router import router as health_router
 # from router.llava_router import router as llava_router
+from router.censorship_router import router as censorship_router
 
 from fastapi.exceptions import RequestValidationError, HTTPException
-from router.censorship_router import router as censorship_router
 from router.censorship_router import validation_exception_handler, http_exception_handler
 
 load_dotenv()

@@ -1,5 +1,6 @@
 from google.cloud import pubsub_v1
 from model.verify.LLM_verify_model import ImageVerifyModel
+from model.verify.publisher_ai_to_be import publish_result
 import json
 import requests
 
@@ -10,7 +11,7 @@ load_dotenv()
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 
 project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
-subscription_id = os.getenv("PUBSUB_SUBSCRIPTION_DEV")
+subscription_id = os.getenv("PUBSUB_SUBSCRIPTION_BE_TO_AI_DEV")
 
 subscription_path = f"projects/{project_id}/subscriptions/{subscription_id}"
 
@@ -23,7 +24,6 @@ def run_worker():
 
         try:
             data = json.loads(message.data.decode("utf-8"))
-
             print("[DEBUG] 파싱된 data dict:", data)
  
             blob_name = data["imageUrl"].split("/")[-1]
@@ -42,7 +42,7 @@ def run_worker():
 
             # 콜백 URL 내 challengeId 치환
             # -> CALLBACK_URL에 {verificationId}가 포함되는 경우, Python에서 실제 전송 전에 .format() 또는 f-string으로 치환해줘야함 
-            formatted_url = os.getenv("CALLBACK_URL_VERIFY").format(verificationId=data["verificationId"])
+            # formatted_url = os.getenv("CALLBACK_URL_VERIFY").format(verificationId=data["verificationId"])
             
             # 결과 콜백 전송
             payload = {
@@ -53,13 +53,18 @@ def run_worker():
                 "result": is_verified
             }
 
-            response = requests.post(formatted_url, json=payload)
+            # response = requests.post(formatted_url, json=payload)
 
             # 콜백 요청/응답 로깅
-            print(f"[CALLBACK] 전송 URL: {formatted_url}")
-            print(f"[CALLBACK] 전송 payload: {json.dumps(payload, ensure_ascii=False)}")
-            print(f"[CALLBACK] 전송 코드: {response.status_code}")
-            print(f"[CALLBACK] 전송 내용 본문: {response.text}")
+            # print(f"[CALLBACK] 전송 URL: {formatted_url}")
+            # print(f"[CALLBACK] 전송 payload: {json.dumps(payload, ensure_ascii=False)}")
+            # print(f"[CALLBACK] 전송 코드: {response.status_code}")
+            # print(f"[CALLBACK] 전송 내용 본문: {response.text}")
+
+            message_id = publish_result(payload)
+
+            print(f"[PUBLISH] 인증 결과 발행 완료 (message ID: {message_id})")
+            print(f"[PUBLISH] Payload: {json.dumps(payload, ensure_ascii=False)}")
 
             '''
             requests.post(formatted_url, json={
