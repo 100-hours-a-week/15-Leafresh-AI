@@ -75,7 +75,13 @@ no. | Note | Mothod | Endpoint | Role
 
 ### v2 - CI/CD Architecture
 
-<img width="1000" alt="v2_CI:CD_AI아키텍처" src="https://github.com/user-attachments/assets/a3820213-b92d-4e97-b11d-105aac0f7f23" />
+<img width="1000" alt="V2_CI:CD_AI아키텍처" src="https://github.com/user-attachments/assets/53c1093d-9922-481a-9fe9-95c50ab726c5" />
+
+<br>
+
+### v3 - Kubernetes Architecture
+
+<img width="1000" alt="V3_Kubernetes_AI아키텍처" src="https://github.com/user-attachments/assets/29c584f0-0ff7-41c5-a7ab-b4e9d84bfdfd" />
 
 <br>
 <br>
