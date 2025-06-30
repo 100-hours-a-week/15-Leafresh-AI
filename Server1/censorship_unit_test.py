@@ -1,5 +1,5 @@
-from model.censorship_hyperclovax_model import HyperClovaxModel
-from model.LLM_censorship_model import CensorshipModel
+from model.censor.censorship_hyperclovax_model import HyperClovaxModel
+from model.censor.LLM_censorship_model import CensorshipModel
 import time
 from censorship_test_case import test_cases
 import pandas as pd

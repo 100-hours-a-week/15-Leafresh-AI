@@ -6,8 +6,8 @@ from starlette.status import HTTP_422_UNPROCESSABLE_ENTITY
 from pydantic import BaseModel, Field
 from typing import List, Optional
 
-from model.LLM_censorship_model import CensorshipModel
-from model.censorship_hyperclovax_model import HyperClovaxModel
+from model.censor.LLM_censorship_model import CensorshipModel
+from model.censor.censorship_hyperclovax_model import HyperClovaxModel
 
 router = APIRouter()
 # model = CensorshipModel()

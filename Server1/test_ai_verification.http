@@ -6,7 +6,7 @@ Content-Type: application/json
 {
   "verificationId": 222,
   "type": "GROUP",
-  "imageUrl": "https://storage.googleapis.com/leafresh-images/1747987094110-2b84faf8-259d-49c3-8ebb-b96c8cc580ca-camera-capture.jpg",
+  "imageUrl": "https://storage.googleapis.com/leafresh-gcs-images/1747987094110-2b84faf8-259d-49c3-8ebb-b96c8cc580ca-camera-capture.jpg",
   "memberId": 112,
   "challengeId": 1,
   "date": "2025-05-24",
@@ -22,7 +22,7 @@ Content-Type: application/json
 {
   "verificationId": 333,
   "type": "GROUP",
-  "imageUrl": "https://storage.googleapis.com/leafresh-images/1747987094110-2b84faf8-259d-49c3-8ebb-b96c8cc580ca-camera-capture.jpg",
+  "imageUrl": "https://storage.googleapis.com/leafresh-gcs-images/1747987094110-2b84faf8-259d-49c3-8ebb-b96c8cc580ca-camera-capture.jpg",
   "memberId": 115,
   "challengeId": 888,
   "date": "2025-05-24",
@@ -37,7 +37,7 @@ Content-Type: application/json
 {
   "verificationId": 444,
   "type": "PERSONAL",
-  "imageUrl": "https://storage.googleapis.com/leafresh-images/1747987094110-2b84faf8-259d-49c3-8ebb-b96c8cc580ca-camera-capture.jpg",
+  "imageUrl": "https://storage.googleapis.com/leafresh-gcs-images/1747987094110-2b84faf8-259d-49c3-8ebb-b96c8cc580ca-camera-capture.jpg",
   "memberId": 200,
   "challengeId": 1,
   "date": "2025-06-14",
