@@ -23,7 +23,7 @@
 분류 | 사용 기술
 -- | --
 AI Model | `Vertex AI (Gemini-2.0-flash) API`, `LLaVA-13B`, `Mistral-7B`, `HyperCLOVAX-1.5B`
-Server | `Python`, `FastAPI`, `Cloud Pub/Sub`, `GCS`, `SSE`, `MongoDB`
+Server | `Python`, `FastAPI`, `Cloud Pub/Sub`, `GCS`, `SSE`, `MongoDB`, `Redis`
 LLM Orchestration | `LangChain`, `RAG`, `VectorDB (QdrantDB)`
 
 <br>
@@ -75,11 +75,16 @@ no. | Note | Mothod | Endpoint | Role
 
 ### v2 - CI/CD Architecture
 
-<img width="1000" alt="v2_CI:CD_AI아키텍처" src="https://github.com/user-attachments/assets/2d8d5090-7c7a-434c-8aad-0d544d286e21" />
+<img width="1000" alt="V2_CI:CD_AI아키텍처" src="https://github.com/user-attachments/assets/53c1093d-9922-481a-9fe9-95c50ab726c5" />
+
+<br>
+
+### v3 - Kubernetes Architecture
+
+<img width="1000" alt="V3_Kubernetes_AI아키텍처" src="https://github.com/user-attachments/assets/29c584f0-0ff7-41c5-a7ab-b4e9d84bfdfd" />
 
 <br>
 <br>
-
 
 
 
