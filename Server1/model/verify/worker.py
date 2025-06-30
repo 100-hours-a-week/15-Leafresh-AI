@@ -49,6 +49,7 @@ def run_worker():
                 "type": data["type"],
                 "memberId": data["memberId"],
                 "challengeId": data["challengeId"],
+                "verificationId": data["verificationId"],
                 "date": data["date"],
                 "result": is_verified
             }
