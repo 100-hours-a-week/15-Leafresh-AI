@@ -5,6 +5,8 @@ import requests
 from Text.LLM.model.feedback.LLM_feedback_model import FeedbackModel
 from Text.LLM.model.chatbot.shared_model import shared_model
 
+feedback_model = FeedbackModel()
+
 def generate_feedback_task(data):
     """
     RQ 워커에서 실행될 피드백 생성 태스크
@@ -20,7 +22,7 @@ def generate_feedback_task(data):
         
         # 콜백 전송
         if feedback_result and feedback_result.get("status") == 200:
-            callback_url = "https://springboot.dev-leafresh.app/api/members/feedback/result"
+            callback_url = "http://34.64.183.21:8080/api/members/feedback/result"
             callback_payload = {
                 "memberId": data.get("memberId"),
                 "content": feedback_result.get("data", {}).get("feedback", "")

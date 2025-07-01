@@ -18,37 +18,44 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-logger.info("Feedback model module loaded (lazy loading)")
-
 class FeedbackModel:
+    _instance = None
+    _initialized = False
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(FeedbackModel, cls).__new__(cls)
+        return cls._instance
+    
     def __init__(self):
-        load_dotenv()
-        
-        # 지연 로딩: 실제 사용할 때만 모델 로드
-        self._model = None
-        self._tokenizer = None
-        
-        logger.info("Feedback model initialized with shared model (lazy loading)")
-        
-        # 한글 기준으로 5-6문장에 적절한 토큰 수로 조정 (약 250-300자)
-        self.max_tokens = 500
-        # 프롬프트 템플릿을 환경 변수에서 가져오거나 기본값 사용
-        self.prompt_template = os.getenv("FEEDBACK_PROMPT_TEMPLATE",
-        """
-        당신은 사용자의 챌린지 이력을 판단하여 피드백을 해주는 어시스턴트 입니다. 
-        1. 다음 {personal_challenges}와 {group_challenges} 기록을 통합하여 요약하고, 사용자의 노력을 인정하고 격려하는 피드백을 한글로 생성해주세요.
-        2. 실패한 챌린지에 대해서는 위로와 함께 다음 기회를 기대한다는 메시지를 포함해주세요.
-        3. 유니코드(Unicode) 표준에 포함된 이모지(예: 😊, 🌱, 🎉 등)를 적절히 사용하여 친근하고 밝은 톤으로 작성해주세요.
-        4. 같은 의미의 문장을 반복하지 말고, 구체적이고 간결하게 작성하세요.
-        5. 문장이 중간에 끊기지 않게 완결된 문장으로 작성하세요.
-        6. 무조건 전체 답변은 한글 기준 250자 이내로 작성하세요.
+        if not self._initialized:
+            load_dotenv()
+            
+            # 지연 로딩: 실제 사용할 때만 모델 로드
+            self._model = None
+            self._tokenizer = None
+            
+            # 한글 기준으로 5-6문장에 적절한 토큰 수로 조정 (약 250-300자)
+            self.max_tokens = 500
+            # 프롬프트 템플릿을 환경 변수에서 가져오거나 기본값 사용
+            self.prompt_template = os.getenv("FEEDBACK_PROMPT_TEMPLATE",
+            """
+            당신은 사용자의 챌린지 이력을 판단하여 피드백을 해주는 어시스턴트 입니다. 
+            1. 다음 {personal_challenges}와 {group_challenges} 기록을 통합하여 요약하고, 사용자의 노력을 인정하고 격려하는 피드백을 한글로 생성해주세요.
+            2. 실패한 챌린지에 대해서는 위로와 함께 다음 기회를 기대한다는 메시지를 포함해주세요.
+            3. 유니코드(Unicode) 표준에 포함된 이모지(예: 😊, 🌱, 🎉 등)를 적절히 사용하여 친근하고 밝은 톤으로 작성해주세요.
+            4. 같은 의미의 문장을 반복하지 말고, 구체적이고 간결하게 작성하세요.
+            5. 문장이 중간에 끊기지 않게 완결된 문장으로 작성하세요.
+            6. 무조건 전체 답변은 한글 기준 250자 이내로 작성하세요.
 
-        개인 챌린지:
-        {personal_challenges}
+            개인 챌린지:
+            {personal_challenges}
 
-        단체 챌린지:
-        {group_challenges}
-        """)
+            단체 챌린지:
+            {group_challenges}
+            """)
+            
+            self._initialized = True
 
     @property
     def model(self):

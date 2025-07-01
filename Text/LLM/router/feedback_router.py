@@ -74,41 +74,6 @@ async def create_feedback(request: FeedbackRequest):
             }
         )
 
-    # 실제 피드백 생성 및 처리 로직을 수행할 함수
-    # async def run_feedback_generation(data: Dict[str, Any]):
-    #     CALLBACK_URL = os.getenv("CALLBACK_URL_FEEDBACK")
-    #     if not CALLBACK_URL:
-    #         print("CALLBACK_URL_FEEDBACK 환경 변수가 설정되지 않았습니다. 피드백 결과를 전송할 수 없습니다.")
-    #         return
-
-    #     callback_url = f"https://springboot.dev-leafresh.app/api/members/feedback/result"
-
-    #     try:
-    #         feedback_model = FeedbackModel()
-    #         feedback_result = await feedback_model.generate_feedback(data)
-
-    #         if feedback_result and feedback_result.get("status") == 200:
-    #             callback_payload = {
-    #                 "memberId": data.get("memberId"),
-    #                 "content": feedback_result.get("data", {}).get("feedback", "")
-    #             }
-    #             print(f"BE 서비스로 피드백 결과 전송 시도: {callback_url} with payload {callback_payload}")
-    #             async with httpx.AsyncClient() as client:
-    #                 callback_response = await client.post(callback_url, json=callback_payload)
-    #                 callback_response.raise_for_status()
-    #                 print(f"피드백 결과 BE 전송 성공: 상태 코드 {callback_response.status_code}")
-    #         elif feedback_result:
-    #             print(f"피드백 모델 오류 발생. 결과를 BE에 전송하지 않습니다. 응답: {feedback_result}")
-    #         else:
-    #             print("피드백 모델 응답이 유효하지 않습니다.")
-
-    #     except httpx.HTTPStatusError as http_err:
-    #         print(f"BE 서비스 콜백 중 HTTP 오류 발생: {http_err}")
-    #     except httpx.RequestError as req_err:
-    #         print(f"BE 서비스 콜백 중 요청 오류 발생: {req_err}")
-    #     except Exception as e:
-    #         print(f"백그라운드 피드백 생성/전송 중 예상치 못한 오류 발생: {e}")
-
     # 유효한 요청인 경우, 즉시 202 Accepted 응답 반환
     job = feedback_queue.enqueue('Text.LLM.model.feedback.tasks.generate_feedback_task', request.model_dump())
     return JSONResponse(
