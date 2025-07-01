@@ -26,7 +26,10 @@ class SharedMistralModel:
         return cls._instance
     
     def __init__(self):
+        print("Feedback Model 생성!")
+        # 즉시 로딩: 인스턴스 생성 시 무조건 모델을 메모리에 올림
         if not self._initialized:
+            print("Feedback Model 초기화!")
             self._initialize_model()
             self._initialized = True
     
@@ -146,5 +149,5 @@ class SharedMistralModel:
         except Exception as e:
             logger.error(f"Memory cleanup error: {str(e)}")
 
-# 전역 인스턴스 생성
+# 전역 인스턴스 생성 (모듈 로드 시점에 생성되지만 로그는 출력하지 않음)
 shared_model = SharedMistralModel() 
