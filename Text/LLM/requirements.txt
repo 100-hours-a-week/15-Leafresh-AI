@@ -153,3 +153,6 @@ proto-plus==1.26.1
 types-requests==2.32.0.20250515
 sentencepiece==0.2.0
 accelerate==0.27.2
+
+bitsandbytes==0.43.1
+rq==2.4.0
