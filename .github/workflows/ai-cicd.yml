@@ -63,7 +63,7 @@ jobs:
             cd Text/LLM
             pip install -r requirements.txt
           else
-            cd Image
+            cd Server1
             pip install -r requirements.txt
           fi
       
@@ -72,7 +72,7 @@ jobs:
           if [[ "${{ github.event.inputs.target_test }}" == *"mac"* ]]; then
             cd Text/LLM && python censorship_unit_test.py
           else
-            cd Image && python verify_unit_test.py
+            cd Server1 && python verify_unit_test.py
           fi
       
       - name: Run Integration Test
@@ -84,7 +84,7 @@ jobs:
             cat uvicorn.log
             chmod +x censorship_curl_test.sh && ./censorship_curl_test.sh
           else
-            cd Image
+            cd Server1
             nohup uvicorn main:app --host 0.0.0.0 --port 8000 --reload --env-file $GITHUB_WORKSPACE/.env > uvicorn.log 2>&1 &
             sleep 30
             cat uvicorn.log
@@ -164,7 +164,7 @@ jobs:
           REF=${GITHUB_REF#refs/tags/}
           echo "TAG: $REF"
           if [[ "$REF" == *"kellyn-dev" ]]; then
-            echo "dir=Image" >> $GITHUB_OUTPUT
+            echo "dir=Server1" >> $GITHUB_OUTPUT
             echo "host=${{ secrets.SSH_HOST_DEV_KELLYN }}" >> $GITHUB_OUTPUT
             # echo "env=ENV_AI_DEV" >> $GITHUB_OUTPUT
           elif [[ "$REF" == *"mac-dev" ]]; then
