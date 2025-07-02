@@ -26,7 +26,7 @@ load_dotenv()
 
 # 모니터링 서버 실행 함수
 def run_metrics_server():
-    start_http_server(9100)
+    start_http_server(9101)
 
 # worker를 main 실행할 때 지속적으로 실행되도록 변경 
 # pubsub_v1이 동기로 실행되므로 async를 붙이지 않음 
