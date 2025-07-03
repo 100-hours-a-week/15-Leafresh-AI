@@ -11,7 +11,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 # GCP model_dir = "/home/ubuntu/hyperclovax_model/models--naver-hyperclovax--HyperCLOVAX-SEED-Text-Instruct-1.5B/snapshots/543a1be9d6233069842ffce73aa56a232a4f457b"
 # local model_dir = "./hyperclovax_model/models--naver-hyperclovax--HyperCLOVAX-SEED-Text-Instruct-1.5B/snapshots/543a1be9d6233069842ffce73aa56a232a4f457b"
 class HyperClovaxModel :
-    def __init__(self, model_dir = "./hyperclovax_model/models--naver-hyperclovax--HyperCLOVAX-SEED-Text-Instruct-1.5B/snapshots/543a1be9d6233069842ffce73aa56a232a4f457b"):
+    def __init__(self, model_dir = "/home/ubuntu/hyperclovax_model/models--naver-hyperclovax--HyperCLOVAX-SEED-Text-Instruct-1.5B/snapshots/543a1be9d6233069842ffce73aa56a232a4f457b"):
         load_dotenv()
         self.device = "cpu"
 
