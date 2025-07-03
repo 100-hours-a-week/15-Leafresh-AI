@@ -8,26 +8,23 @@ from collections import Counter
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
-import asyncio
+import multiprocessing
 
-# GCP model_dir = "/home/ubuntu/hyperclovax_model/models--naver-hyperclovax--HyperCLOVAX-SEED-Text-Instruct-1.5B/snapshots/543a1be9d6233069842ffce73aa56a232a4f457b"
-# local model_dir = "./hyperclovax_model/models--naver-hyperclovax--HyperCLOVAX-SEED-Text-Instruct-1.5B/snapshots/543a1be9d6233069842ffce73aa56a232a4f457b"
 class HyperClovaxModel :
-    def __init__(self, model_dir = "/home/ubuntu/hyperclovax_model/models--naver-hyperclovax--HyperCLOVAX-SEED-Text-Instruct-1.5B/snapshots/543a1be9d6233069842ffce73aa56a232a4f457b"):
+    def __init__(self, model_dir : str):
         load_dotenv()
         self.device = "cpu"
-        self.semaphore = asyncio.Semaphore(2)  
 
-        print("[INFO] HyperCLOVA-X 모델 로딩 중 ...")
+        print(f"[INFO] PID {multiprocessing.current_process().pid} → HyperCLOVA-X 모델 로딩 중 ...")
         self.tokenizer = AutoTokenizer.from_pretrained(model_dir)
         self.model = AutoModelForCausalLM.from_pretrained(
             model_dir,
             torch_dtype=torch.float32,                          # CPU 환경에서는 float16 사용 불가
         ).to(self.device)
-        print("[INFO] 모델 로딩 완료")
+        print(f"[INFO] PID {multiprocessing.current_process().pid} → 모델 로딩 완료")
 
 
-    async def generate_response(self, prompt: str) -> str:
+    def generate_response(self, prompt: str) -> str:
         inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
 
         with torch.no_grad():
@@ -46,7 +43,7 @@ class HyperClovaxModel :
         return result.strip()
     
 
-    async def validate(self, challenge_name: str, start_date: str, end_date: str, existing: List[dict]):
+    def validate(self, challenge_name: str, start_date: str, end_date: str, existing: List[dict]):
         # 날짜 계산 함수 
         def dates_overlap(s1, e1, s2, e2):
             return max(s1, s2) <= min(e1, e2)
@@ -127,7 +124,7 @@ class HyperClovaxModel :
             "다른 말은 절대 하지 마세요. \n"
         )
 
-        response_first = (await self.generate_response(prompt_first)).strip().lower()
+        response_first = self.generate_response(prompt_first).strip().lower()
         print("[DEBUG] 첫번째 모델 응답: ", response_first, "\n")
 
         match_first = re.search(r"\b(yes|no|네|예|아니오|아니요)\b", response_first.strip().lower().split('\n')[-1])
@@ -184,7 +181,7 @@ class HyperClovaxModel :
         )
 
         try:
-            response_second = (await self.generate_response(prompt_second)).strip().lower()
+            response_second = self.generate_response(prompt_second).strip().lower()
             print("[DEBUG] 두번째 모델 응답: ", response_second, "\n")
 
             # 마지막 줄만 파싱
@@ -220,4 +217,3 @@ class HyperClovaxModel :
             print("[BUG] 응답 실패 ", e)
             traceback.print_exc()
             return False, "챌린지 검열 중 오류가 발생했습니다."
-        
