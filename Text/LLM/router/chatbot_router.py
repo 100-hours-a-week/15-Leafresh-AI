@@ -338,3 +338,9 @@ async def event_generator_error(message: str, status_code: int):
             "data": None
         }, ensure_ascii=False)
     }
+
+# 명령어 예시 (vllm 모델 실행)
+# python3 -m vllm.entrypoints.openai.api_server \
+#   --model /home/ubuntu/mistral/models--mistralai--Mistral-7B-Instruct-v0.3/snapshots/e0bc86c23ce5aae1db576c8cca6f06f1f73af2db \
+#   --host 0.0.0.0 \
+#   --port 8800
