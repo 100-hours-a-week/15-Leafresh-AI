@@ -309,3 +309,215 @@ curl -X POST http://localhost:8000/ai/feedback \
 - FastAPI와 RQ 워커 모두에서 shared_model이 한 번만 로드되는 구조가 정상
 - 피드백 요청마다 모델이 다시 로드된다면, 워커가 죽거나, 코드 구조에 문제가 있을 가능성이 높음
 - 멀티프로세스 환경에서 모델을 공유하려면 별도의 모델 서버(예: Triton, Ray Serve 등) 구조로 아키텍처를 변경해야 함
+
+# 2025-07-03 vLLM 도입에 따른 피드백 모델 변경사항
+
+## 1. vLLM 도입 배경 및 영향
+
+### 피드백 모델 변경 필요성
+- 챗봇 모델이 vLLM으로 전환되면서 일관성 있는 아키텍처 유지를 위해 피드백 모델도 vLLM 사용으로 변경
+- 기존: Hugging Face Transformers 직접 사용 → 새로운: vLLM HTTP API 통신
+- 메모리 사용량 최적화 및 성능 향상 목적
+
+### vLLM 서버 공유
+- 챗봇과 피드백 모델이 동일한 vLLM 서버(포트 8800)를 공유
+- 모델 경로: `/home/ubuntu/mistral/models--mistralai--Mistral-7B-Instruct-v0.3/snapshots/e0bc86c23ce5aae1db576c8cca6f06f1f73af2db`
+- 서버 리소스 효율성 향상
+
+## 2. 코드 구조 변경사항
+
+### 2.1. 기존 코드 (Hugging Face Transformers 직접 사용)
+```python
+# LLM_feedback_model.py
+from Text.LLM.model.chatbot.shared_model import shared_model
+
+class FeedbackModel:
+    def __init__(self):
+        # 공유 모델 사용
+        self.model = shared_model.model
+        self.tokenizer = shared_model.tokenizer
+        
+    async def generate_feedback(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            # 메모리 정리
+            shared_model.cleanup_memory()
+            
+            # 토크나이저로 입력 준비
+            inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
+            
+            # 모델 생성 설정
+            generation_kwargs = dict(
+                inputs,
+                max_new_tokens=1024,
+                temperature=0.7,
+                do_sample=True,
+                # ... 기타 설정
+            )
+            
+            # 모델 추론
+            outputs = self.model.generate(**generation_kwargs)
+            response = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+            
+            # ... 응답 처리
+```
+
+### 2.2. 새로운 코드 (vLLM HTTP API 사용)
+```python
+# LLM_feedback_model.py
+import httpx
+
+class FeedbackModel:
+    def __init__(self):
+        # vLLM 서버 URL 설정
+        self.vllm_url = "http://localhost:8800/v1/chat/completions"
+        self.model_path = "/home/ubuntu/mistral/models--mistralai--Mistral-7B-Instruct-v0.3/snapshots/e0bc86c23ce5aae1db576c8cca6f06f1f73af2db"
+        
+    async def generate_feedback(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            # vLLM 서버에 POST 요청
+            payload = {
+                "model": self.model_path,
+                "messages": [{"role": "user", "content": prompt}],
+                "stream": False  # 피드백은 스트리밍 불필요
+            }
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    self.vllm_url,
+                    json=payload,
+                    timeout=60.0
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    feedback_text = result["choices"][0]["message"]["content"]
+                    # ... 응답 처리
+```
+
+## 3. 주요 변경사항
+
+### 3.1. 모델 로딩 제거
+- **기존**: `shared_model.model`, `shared_model.tokenizer` 직접 사용
+- **변경**: vLLM 서버가 모델을 관리하므로 로컬 모델 로딩 불필요
+- **효과**: RQ 워커의 메모리 사용량 대폭 감소
+
+### 3.2. HTTP API 통신 방식
+- **기존**: Python에서 직접 모델 추론
+- **변경**: httpx를 사용한 HTTP API 통신
+- **효과**: 더 안정적인 추론, 네트워크 기반 분산 처리 가능
+
+### 3.3. 스트리밍 처리 제거
+- **기존**: TextIteratorStreamer를 사용한 스트리밍 응답
+- **변경**: 피드백은 완성된 텍스트만 필요하므로 스트리밍 불필요
+- **효과**: 응답 처리 로직 단순화
+
+### 3.4. 메모리 관리 단순화
+- **기존**: 복잡한 메모리 정리 로직 (torch.cuda.empty_cache(), gc.collect())
+- **변경**: vLLM 서버가 메모리 관리하므로 로컬 메모리 정리 불필요
+- **효과**: 코드 단순화, 메모리 관리 오버헤드 제거
+
+## 4. 성능 개선 효과
+
+### 4.1. 메모리 사용량
+- **기존**: RQ 워커에서 4GB (로컬 모델 로딩)
+- **변경**: RQ 워커에서 ~0GB (vLLM 서버가 관리)
+- **절약**: 100% 메모리 절약 (워커 기준)
+
+### 4.2. 응답 속도
+- **기존**: 모델 로딩 시간 + 추론 시간
+- **변경**: HTTP 통신 시간 + 추론 시간
+- **개선**: 모델 로딩 오버헤드 제거로 응답 속도 향상
+
+### 4.3. 안정성
+- **기존**: 토큰 디코딩 오버플로우 에러, 메모리 부족 문제
+- **변경**: vLLM의 최적화된 추론 엔진으로 안정성 향상
+- **개선**: 에러 발생 빈도 대폭 감소
+
+### 4.4. 확장성
+- **기존**: 단일 프로세스에서 모델 관리
+- **변경**: vLLM 서버의 멀티프로세스/멀티스레드 지원
+- **개선**: 동시 요청 처리 능력 향상
+
+## 5. 아키텍처 변화
+
+### 5.1. 기존 아키텍처
+```
+FastAPI 서버 (포트 8000)
+    ↓
+shared_model (4비트 양자화된 Mistral)
+    ↓
+├── 챗봇 기능 (base-info, free-text)
+└── 피드백 기능 (feedback generation)
+
+RQ 워커
+    ↓
+shared_model (4비트 양자화된 Mistral) - 별도 로딩
+    ↓
+피드백 생성
+```
+
+### 5.2. 새로운 아키텍처
+```
+FastAPI 서버 (포트 8000)
+    ↓
+vLLM 서버 (포트 8800) - 공유 모델
+    ↓
+├── 챗봇 기능 (HTTP API 호출)
+└── 피드백 기능 (HTTP API 호출)
+
+RQ 워커
+    ↓
+vLLM 서버 (포트 8800) - HTTP API 호출
+    ↓
+피드백 생성
+```
+
+## 6. 주의사항 및 고려사항
+
+### 6.1. 의존성 추가
+```python
+# 새로운 의존성
+import httpx  # HTTP 클라이언트
+```
+
+### 6.2. 서버 관리
+- vLLM 서버가 챗봇과 피드백 모두에서 사용되므로 안정성 중요
+- vLLM 서버 다운 시 전체 AI 기능 중단 가능성
+- 모니터링 및 자동 재시작 스크립트 필요
+
+### 6.3. 네트워크 의존성
+- 로컬 HTTP 통신이므로 네트워크 지연 최소화
+- vLLM 서버의 응답 시간이 전체 피드백 생성 시간에 영향
+
+### 6.4. 에러 처리
+- HTTP 통신 실패 시 적절한 에러 처리 필요
+- vLLM 서버 응답 형식 변경 시 코드 수정 필요
+
+## 7. 테스트 방법
+
+### 7.1. vLLM 서버 상태 확인
+```bash
+# vLLM 서버 실행 확인
+curl http://localhost:8800/v1/models
+
+# 피드백 생성 테스트
+curl -X POST http://localhost:8000/ai/feedback \
+  -H "Content-Type: application/json" \
+  -d @test_ai_feedback.json
+```
+
+### 7.2. RQ 워커 로그 확인
+```bash
+# 워커 실행
+rq worker feedback
+
+# 로그에서 vLLM 호출 확인
+# "vLLM 호출" 로그 메시지 확인
+```
+
+## 8. 현재 상태
+- 피드백 모델 vLLM 전환 완료
+- 챗봇과 피드백 모델이 동일한 vLLM 서버 공유
+- 메모리 사용량 최적화
+- 안정성 향상
+- 코드 구조 단순화

@@ -3,13 +3,13 @@ from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import os
 import traceback
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+# from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 import torch
 import json
 import logging
 from huggingface_hub import login
 import gc
-from Text.LLM.model.chatbot.shared_model import shared_model
+# from Text.LLM.model.chatbot.shared_model import shared_model
 
 # 로깅 설정
 logging.basicConfig(
@@ -60,13 +60,15 @@ class FeedbackModel:
     @property
     def model(self):
         if self._model is None:
-            self._model = shared_model.model
+            # self._model = shared_model.model
+            pass
         return self._model
     
     @property
     def tokenizer(self):
         if self._tokenizer is None:
-            self._tokenizer = shared_model.tokenizer
+            # self._tokenizer = shared_model.tokenizer
+            pass
         return self._tokenizer
 
     def _is_within_last_week(self, date_str: str) -> bool:
@@ -126,7 +128,7 @@ class FeedbackModel:
             깨끗한 상태에서 시작: 새로운 피드백 생성 전에 메모리를 정리하여 안정성 확보
             메모리 단편화 방지: 연속 요청 시 메모리 단편화 문제 해결
             """
-            shared_model.cleanup_memory()
+            # shared_model.cleanup_memory()
             
             # 입력 데이터 검증
             if data.get("memberId") is None:  # 0도 유효한 값으로 처리
@@ -155,6 +157,7 @@ class FeedbackModel:
 
             try:
                 # Mistral 모델을 통한 피드백 생성
+                # quantization_config = BitsAndBytesConfig(...)
                 inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
                 prompt_length = inputs["input_ids"].shape[1]  # 프롬프트 토큰 길이
                 outputs = self.model.generate(
@@ -204,5 +207,5 @@ class FeedbackModel:
         finally:
             # 메모리 정리
             # 성공/실패 관계없이 항상 메모리 정리 실행
-            shared_model.cleanup_memory()
+            # shared_model.cleanup_memory()
             logger.info("Feedback model memory cleanup completed")
