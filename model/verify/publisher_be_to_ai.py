@@ -7,7 +7,7 @@ load_dotenv()
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 
 project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
-topic_id = os.getenv("PUBSUB_TOPIC_PROD")
+topic_id = os.getenv("PUBSUB_TOPIC_BE_TO_AI_PROD")
 
 publisher = pubsub_v1.PublisherClient()
 topic_path = publisher.topic_path(project_id, topic_id)
@@ -16,5 +16,5 @@ def add_task(data: dict):
     message_json = json.dumps(data)
     future = publisher.publish(topic_path, message_json.encode("utf-8"))
 
-    print("publich_message 발행됨", data)
+    print("BE -> AI : publich_message 발행됨 : ", data)
     return future.result()
