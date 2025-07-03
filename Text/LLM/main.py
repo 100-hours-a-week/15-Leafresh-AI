@@ -5,6 +5,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 import sys
 import os
+import uvicorn
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(project_root)
@@ -19,6 +20,13 @@ from Text.LLM.router.feedback_router import feedback_exception_handler
 from Text.LLM.router.feedback_router import feedback_http_exception_handler
 
 from fastapi.middleware.cors import CORSMiddleware
+
+from prometheus_client import start_http_server
+
+if __name__ == "__main__":
+    # 9104 포트에서 exporter 실행
+    start_http_server(9104)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000)
 
 load_dotenv()
 
