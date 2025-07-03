@@ -18,7 +18,9 @@ import threading
 import logging
 from fastapi import HTTPException
 import gc
-from Text.LLM.model.chatbot.shared_model import shared_model
+import unicodedata
+# from Text.LLM.model.chatbot.shared_model import shared_model
+import httpx
 
 # 로깅 설정
 logging.basicConfig(
@@ -30,9 +32,9 @@ logger = logging.getLogger(__name__)
 # 환경 변수 로드
 load_dotenv()
 
-# 공유 모델 사용
-model = shared_model.model
-tokenizer = shared_model.tokenizer
+# # 공유 모델 사용(vLLM 사용으로 인해 주석처리)
+# model = shared_model.model
+# tokenizer = shared_model.tokenizer
 
 logger.info("Using shared Mistral model for free-text chatbot")
 
@@ -67,7 +69,7 @@ escaped_format = rag_parser.get_format_instructions().replace("{", "{{").replace
 # RAG 방식 챌린지 추천을 위한 PromptTemplate 정의
 custom_prompt = PromptTemplate(
     input_variables=["context", "query", "messages", "category"],
-    template=f"""<s>[INST] 당신은 환경 보호 챌린지를 추천하는 AI 어시스턴트입니다.
+    template=f"""당신은 환경 보호 챌린지를 추천하는 AI 어시스턴트입니다.
 다음 문서와 이전 대화 기록을 참고하여 사용자에게 적절한 친환경 챌린지를 3개 추천해주세요.
 
 이전 대화 기록:
@@ -82,189 +84,121 @@ custom_prompt = PromptTemplate(
 주의사항:
 1. 모든 속성 이름과 문자열 값은 반드시 큰따옴표(")로 둘러싸야 합니다.
 2. recommend 필드에는 {{category}} 관련 추천 문구를 포함해야 합니다.
-3. 각 title 내용은 번호를 붙이고, 실제 줄바꿈(엔터)으로 구분해 주세요.
+3. 각 title 내용은 번호를 붙이세요.
 
 출력 형식 예시:
 {escaped_format}
 
-반드시 위 JSON 형식 그대로 반드시 한글로 한번만 출력하세요. [/INST]</s>
+반드시 위 JSON 형식 그대로 반드시 한글로 한번만 출력하세요.
 """
 )
 
 def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], None, None]:
-    """LLM 응답을 SSE 형식으로 반환 (서버에서 전체 파싱 후 전달)"""
-    logger.info("==== [get_llm_response] 함수 진입 ====")
-    logger.info(f"[get_llm_response]생성 시작 - 프롬프트 길이: {len(prompt)}")
+    """vLLM 서버에 POST 요청하여 free-text 챌린지 응답을 SSE 형식으로 반환"""
+    logger.info(f"[vLLM 호출] 프롬프트 길이: {len(prompt)}")
+    url = "http://localhost:8800/v1/chat/completions"
+    payload = {
+        "model": "/home/ubuntu/mistral/models--mistralai--Mistral-7B-Instruct-v0.3/snapshots/e0bc86c23ce5aae1db576c8cca6f06f1f73af2db",
+        "messages": [{"role": "user", "content": prompt}],
+        "stream": True
+    }
+
+    response_completed = False  # 응답 완료 여부를 추적하는 플래그
+
     try:
-        # 메모리 정리
-        shared_model.cleanup_memory()
-        logger.info("get_llm_response 시작 전 메모리 정리 완료")
+        with httpx.stream("POST", url, json=payload, timeout=60.0) as response:
+            full_response = ""
+            for line in response.iter_lines():
+                if line.startswith(b"data: "):
+                    try:
+                        json_data = json.loads(line[len(b"data: "):])
+                        delta = json_data["choices"][0]["delta"]
+                        token = delta.get("content", "")
+                        if token.strip() in ["```", "`", ""]:
+                            continue  # 이런 토큰은 누적하지 않음
+                        full_response += token
+                        logger.info(f"토큰 수신: {token[:20]}...")
 
-        inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
-        logger.info(f"토크나이저 입력 준비 완료. 입력 토큰 수: {inputs.input_ids.shape[1]}")
-        # 스트리머 설정
-        streamer = TextIteratorStreamer(
-            tokenizer,
-            skip_prompt=True,
-            skip_special_tokens=True,
-            timeout=None,
-            decode_kwargs={
-                "skip_special_tokens": True,
-                "clean_up_tokenization_spaces": True,
-                "errors": "ignore" # 디코딩 할 수 없는 바이트는 무시
-            }
-        )
-        logits_processor = LogitsProcessorList([
-            InfNanRemoveLogitsProcessor()
-        ])
-
-       # 모델 생성 설정 
-        generation_kwargs = dict(
-            inputs,  # 입력 텐서 (input_ids, attention_mask 등)
-            streamer=streamer,  # 스트리밍 응답을 위한 TextIteratorStreamer 객체
-            max_new_tokens=512,  # 토큰 수를 줄여서 안정성 향상
-            temperature=0.3,  # 더 낮은 temperature로 일관성 향상
-            do_sample=True,  # 확률적 샘플링 활성화
-            top_p=0.9,  # nucleus sampling 추가
-            top_k=50,  # top-k sampling 추가
-            repetition_penalty=1.1,  # 반복 방지
-            pad_token_id=tokenizer.eos_token_id, # 패딩 토큰 ID 설정 (Mistral은 EOS 토큰을 패딩으로 사용)
-            logits_processor=logits_processor,
-            eos_token_id=tokenizer.eos_token_id,  # EOS 토큰 명시적 설정
-            early_stopping=True  # 조기 중단 활성화
-        )
-        logger.info("스레드 시작 및 모델 생성 시작.")
-
-        if inputs.input_ids.shape[1] > 2048:
-            raise ValueError(f"입력이 너무 깁니다. 최대 2048 토큰까지 허용됩니다. 현재: {inputs.input_ids.shape[1]} 토큰")
-
-        thread = threading.Thread(target=model.generate, kwargs=generation_kwargs)
-        thread.start()
-
-         # 전체 응답 누적용
-        full_response = ""
-        logger.info("스트리밍 응답 대기 중...")
-        response_completed = False  # 응답 완료 여부를 추적하는 플래그
-
-        try:
-            for new_text in streamer:
-                if new_text and not response_completed:  # 응답이 완료되지 않은 경우에만 처리
-                    full_response += new_text
-                    logger.info(f"토큰 수신: {new_text[:20]}...")
-                    
-                    # 토큰 정제 - 순수 텍스트만 추출
-                    cleaned_text = new_text
-                    # JSON 관련 문자열 제거
-                    cleaned_text = re.sub(r'"(recommend|challenges|title|description)":\s*("|\')?', '', cleaned_text)
-                    # 마크다운 및 JSON 구조 제거
-                    cleaned_text = cleaned_text.replace("```json", "").replace("```", "").strip()
-                    cleaned_text = cleaned_text.replace("\\n", "\n")  # 문자열 → 줄바꿈
-                    cleaned_text = re.sub(r'["\']', '', cleaned_text)  # 따옴표 제거
-                    cleaned_text = re.sub(r'[\[\]{}]', '', cleaned_text)  # 괄호 제거
-                    cleaned_text = re.sub(r',\s*$', '', cleaned_text)  # 끝의 쉼표 제거
-                    # 불필요한 공백 제거
-                    cleaned_text = re.sub(r'\s+', ' ', cleaned_text)
-                    cleaned_text = cleaned_text.strip()
-                    
-                    if cleaned_text:
-                        # SSE 응답 전송 - 순수 텍스트만 전송
-                        try:
+                        # 토큰 정제 - 순수 텍스트만 추출
+                        cleaned_text = token
+                        # JSON 관련 문자열 제거
+                        cleaned_text = re.sub(r'"(recommend|challenges|title|description)":\s*("|\')?', '', cleaned_text)
+                        # 마크다운                                                                                                                                                                                                                                                                                                                                                          및 JSON 구조 제거
+                        cleaned_text = cleaned_text.replace("```json", "").replace("```", "").strip()
+                        cleaned_text = re.sub(r'["\']', '', cleaned_text)  # 따옴표 제거
+                        cleaned_text = re.sub(r'[\[\]{}]', '', cleaned_text)  # 괄호 제거
+                        cleaned_text = re.sub(r',\s*$', '', cleaned_text)  # 끝의 쉼표 제거
+                        cleaned_text = re.sub(r'[ \t\r\f\v]+', ' ', cleaned_text)  # \n은 제거 안 함
+                        
+                        cleaned_text = cleaned_text.strip()
+                        if cleaned_text and cleaned_text.strip() not in ["", "``", "```"] and not response_completed:
                             yield {
                                 "event": "challenge",
                                 "data": json.dumps({
                                     "status": 200,
                                     "message": "토큰 생성",
-                                    "data": new_text
+                                    "data": cleaned_text
                                 }, ensure_ascii=False)
                             }
-                        except Exception as e:
-                            logger.error(f"이벤트 전송 중 에러 발생: {str(e)}")
-                            response_completed = True
-                            continue
+                    except Exception as e:
+                        logger.error(f"[vLLM 토큰 파싱 실패] {str(e)}")
+                        continue
 
-            # 스레드 완료 대기
-            thread.join()
-            
-            # 토큰 캐시 정리
-            if hasattr(streamer, 'token_cache'):
-                streamer.token_cache = []
-            
-            # 전체 응답 파싱
+        # 최종 JSON 파싱 시도
+        try:
             logger.info("스트리밍 완료. 전체 응답 파싱 시작.")
-            try:
-                # 전체 응답 로깅
-                logger.info(f"전체 응답: {full_response}")
-                
-                # JSON 문자열 추출
-                json_match = re.search(r"```json\n([\s\S]*?)\n```", full_response.strip())
-                if json_match:
-                    json_str = json_match.group(1).strip()
-                    # logger.info(f"JSON 추출: {json_str}")
-                else:
-                    # 마크다운 코드 블록이 없는 경우, 마지막 JSON 객체 찾기
-                    json_match = re.search(r'(\{[\s\S]*\})', full_response)
-                    if json_match:
-                        json_str = json_match.group(1).strip()
-                        logger.info(f"JSON 객체 추출: {json_str}")
-                    else:
-                        raise ValueError("JSON을 찾을 수 없습니다")
-
-                if not json_str.strip():
-                    raise ValueError("JSON 문자열이 비어있습니다")
-
-                # JSON 파싱 전 문자열 정제
-
-                # 1. 객체와 배열의 마지막 쉼표 제거: {...,} → {...}
-                json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
-
-                # 2. 연속된 쉼표 제거: "a",, "b" → "a", "b"
-                json_str = re.sub(r',\s*,', ',', json_str)
-
-                # 3. 키와 값의 작은따옴표만 큰따옴표로 바꾸기
-                # 3.1. 'recommend': → "recommend":
-                json_str = re.sub(r"'(\w+)'\s*:", r'"\1":', json_str)
-
-                # 3.2. "recommend": 'value' → "recommend": "value"
-                json_str = re.sub(r':\s*\'([^\']*)\'', r': "\1"', json_str)
-
-                # 4. 공백 정리
-                json_str = re.sub(r'\s+', ' ', json_str).strip()
-
-                # JSON 파싱
-                try:
-                    parsed_data_temp = json.loads(json_str)
-                    # logger.info(f"JSON 파싱 성공: {parsed_data_temp}")
-                    parsed_data = rag_parser.parse(json.dumps(parsed_data_temp))
-                    logger.info(f"파싱 성공: {parsed_data}")
-                except json.JSONDecodeError as e:
-                    logger.error(f"JSON 파싱 실패: {str(e)}")
-                    logger.error(f"파싱 시도한 문자열: {json_str}")
-                    response_completed = True  # 파싱 실패 시 플래그 설정
-                    raise
-                    
-                # 카테고리 정보 추가
-                eng_label = label_mapping[category]
-                if isinstance(parsed_data, dict) and "challenges" in parsed_data:
-                    for challenge in parsed_data["challenges"]:
-                        challenge["category"] = eng_label
-                    logger.info(f"카테고리 추가 완료: {eng_label}")
-                    logger.info(f"카테고리 추가된 챌린지 데이터: {parsed_data['challenges']}")
-                    if not response_completed:  # 아직 응답이 완료되지 않았다면
-                        response_completed = True 
-                        yield {
-                            "event": "close",
-                            "data": json.dumps({
-                                "status": 200,
-                                "message": "모든 챌린지 추천 완료",
-                                "data": parsed_data
-                            }, ensure_ascii=False)
-                        }
-                else:
-                    response_completed = True  # challenges 필드가 없는 경우 플래그 설정
-                    raise ValueError("파싱된 데이터에 'challenges' 필드가 없습니다.")
-                    
-            except json.JSONDecodeError as e:
-                logger.error(f"JSON 파싱 실패: {str(e)}")
+            json_str = full_response.strip()
+            json_str = json_str.replace("```json", "").replace("```", "").replace("`", "").strip()
+            json_str = json_str.encode("utf-8", "ignore").decode("utf-8", "ignore")
+            json_str = ''.join(c for c in json_str if unicodedata.category(c)[0] != 'C')
+            # 중복 JSON 제거 - 첫 번째 완전한 JSON만 추출
+            json_objects = []
+            brace_count = 0
+            start_idx = -1
+            for i, char in enumerate(json_str):
+                if char == '{':
+                    if brace_count == 0:
+                        start_idx = i
+                    brace_count += 1
+                elif char == '}':
+                    brace_count -= 1
+                    if brace_count == 0 and start_idx != -1:
+                        json_obj = json_str[start_idx:i+1]
+                        try:
+                            json.loads(json_obj)
+                            json_objects.append(json_obj)
+                            break
+                        except:
+                            continue
+            if json_objects:
+                json_str = json_objects[0]
+            else:
+                if "{" in json_str and "}" in json_str:
+                    json_str = json_str[json_str.find("{"):json_str.rfind("}")+1]
+            json_str = re.sub(r',\s*([}\]])', r'\1', json_str)
+            json_str = re.sub(r',\s*,', ',', json_str)
+            json_str = re.sub(r'[ \t\r\f\v]+', ' ', json_str)
+            logger.info(f"파싱 시도 문자열: {json_str}")
+            parsed_temp = json.loads(json_str)
+            parsed_data = rag_parser.parse(json.dumps(parsed_temp))
+            eng_label = label_mapping[category]
+            if isinstance(parsed_data, dict) and "challenges" in parsed_data:
+                for challenge in parsed_data["challenges"]:
+                    challenge["category"] = eng_label
+            if not response_completed:
+                response_completed = True
+                yield {
+                    "event": "close",
+                    "data": json.dumps({
+                        "status": 200,
+                        "message": "모든 챌린지 추천 완료",
+                        "data": parsed_data
+                    }, ensure_ascii=False)
+                }
+        except Exception as e:
+            logger.error(f"[vLLM 파싱 실패] {str(e)}")
+            logger.error(f"원본 응답: {full_response[:500]}...")
+            if not response_completed:
                 response_completed = True
                 yield {
                     "event": "error",
@@ -274,33 +208,19 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                         "data": None
                     }, ensure_ascii=False)
                 }
-        except Exception as e:
-            logger.error(f"스트리밍 중 에러 발생: {str(e)}")
+    except Exception as e:
+        logger.error(f"[vLLM 호출 실패] {str(e)}")
+        if not response_completed:
             response_completed = True
             yield {
                 "event": "error",
                 "data": json.dumps({
                     "status": 500,
-                    "message": f"LLM 응답 생성 중 예외 발생: {str(e)}",
+                    "message": f"vLLM 호출 실패: {str(e)}",
                     "data": None
                 }, ensure_ascii=False)
             }
-    except Exception as e:
-        logger.error(f"=== 예외 발생 ===")
-        logger.error(f"예외 타입: {type(e).__name__}")
-        logger.error(f"예외 메시지: {str(e)}")
-        
-        yield {
-            "event": "error",
-            "data": json.dumps({
-                "status": 500,
-                "message": f"LLM 응답 생성 실패: {str(e)}",
-                "data": None
-            }, ensure_ascii=False)
-        }
     finally:
-        # 메모리 정리
-        shared_model.cleanup_memory()
         logger.info("메모리 정리 완료")
 
 # 대화 상태를 관리하기 위한 타입 정의
@@ -681,7 +601,7 @@ def process_chat(sessionId: str, query: str, base_info_category: Optional[str] =
         }, ensure_ascii=False)
     finally:
         # 메모리 정리
-        shared_model.cleanup_memory()
+        # shared_model.cleanup_memory()
         logger.info("process_chat 메모리 정리 완료")
 
 def clear_conversation(sessionId: str):

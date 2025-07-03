@@ -83,13 +83,13 @@ class SharedMistralModel:
             
             logger.info("Loading model...")
 
-            # 4비트 양자화 설정 - 안정성과 효율성을 위해 4비트 유지
-            quantization_config = BitsAndBytesConfig(
-                load_in_4bit=True,  # 4비트 양자화 활성화
-                bnb_4bit_compute_dtype=torch.float16,  # 계산은 16비트로 수행
-                bnb_4bit_use_double_quant=True,  # 이중 양자화로 메모리 추가 절약
-                bnb_4bit_quant_type="nf4"  # Normalized Float 4-bit
-            )
+            # # 4비트 양자화 설정 - 안정성과 효율성을 위해 4비트 유지
+            # quantization_config = BitsAndBytesConfig(
+            #     load_in_4bit=True,  # 4비트 양자화 활성화
+            #     bnb_4bit_compute_dtype=torch.float16,  # 계산은 16비트로 수행
+            #     bnb_4bit_use_double_quant=True,  # 이중 양자화로 메모리 추가 절약
+            #     bnb_4bit_quant_type="nf4"  # Normalized Float 4-bit
+            # )
 
             # GPU 메모리 사용량 계산
             gpu_memory = torch.cuda.get_device_properties(0).total_memory
@@ -110,7 +110,7 @@ class SharedMistralModel:
                 torch_dtype=torch.float16,
                 trust_remote_code=True,
                 max_position_embeddings=2048,
-                quantization_config=quantization_config,
+                # quantization_config=quantization_config,
                 offload_folder="offload",
                 offload_state_dict=True,
             )
