@@ -1,5 +1,5 @@
 ### 챌린지 이미지 인증 요청 테스트 (FastAPI)
-POST http://localhost:7000/ai/image/verification
+POST http://localhost:9000/ai/image/verification
 Content-Type: application/json
 
 
@@ -15,7 +15,7 @@ Content-Type: application/json
 }
 
 ### 챌린지 이미지 인증 요청 테스트 (FastAPI)
-POST http://localhost:7000/ai/image/verification
+POST http://localhost:9000/ai/image/verification
 Content-Type: application/json
 
 
@@ -31,7 +31,7 @@ Content-Type: application/json
 }
 
 ### 챌린지 이미지 인증 요청 테스트 (FastAPI)
-POST http://localhost:7000/ai/image/verification
+POST http://localhost:9000/ai/image/verification
 Content-Type: application/json
 
 {
@@ -46,4 +46,4 @@ Content-Type: application/json
 }
 
 ### 헬스체크 테스트
-GET http://localhost:7000/health
+GET http://localhost:9000/health
