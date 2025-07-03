@@ -3,7 +3,7 @@ import httpx
 import os
 import requests
 from Text.LLM.model.feedback.LLM_feedback_model import FeedbackModel
-from Text.LLM.model.chatbot.shared_model import shared_model
+# from Text.LLM.model.chatbot.shared_model import shared_model
 
 feedback_model = FeedbackModel()
 
