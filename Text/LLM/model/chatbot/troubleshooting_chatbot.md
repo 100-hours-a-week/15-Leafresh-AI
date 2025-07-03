@@ -1374,3 +1374,325 @@ async def generate_feedback(self, data: Dict[str, Any]) -> Dict[str, Any]:
 - 메모리 사용량 67% 절약 (12GB → 4GB)
 - 일관된 메모리 관리로 안정성 향상
 - 코드 중복 제거로 유지보수성 개선
+
+# 2025-07-03 vLLM 도입 및 코드 구조 변경
+
+## 1. vLLM 설치 및 설정
+
+### vLLM 도입 배경
+- 기존: Hugging Face Transformers를 직접 사용하여 모델 로딩 및 추론
+- 문제점: 메모리 사용량 대비 추론 속도가 느림, 동시 요청 처리 시 병목 현상
+- 해결책: vLLM(Very Large Language Model) 도입으로 추론 성능 최적화
+
+### vLLM 설치 과정
+```bash
+# vLLM 설치
+pip install vllm
+
+# vLLM 서버 시작 (별도 프로세스로 실행)
+python -m vllm.entrypoints.openai.api_server \
+    --model /home/ubuntu/mistral/models--mistralai--Mistral-7B-Instruct-v0.3/snapshots/e0bc86c23ce5aae1db576c8cca6f06f1f73af2db \
+    --port 8800 \
+    --host 0.0.0.0
+```
+
+### vLLM 서버 설정
+- **포트**: 8800번 포트에서 OpenAI API 호환 인터페이스 제공
+- **모델 경로**: 기존 Hugging Face 모델 경로 그대로 사용
+- **호스트**: 0.0.0.0으로 설정하여 외부 접근 허용
+
+## 2. 코드 구조 변경사항
+
+### 2.1. 모델 로딩 방식 변경
+
+#### 기존 코드 (Hugging Face Transformers 직접 사용)
+```python
+# 공유 모델 사용
+model = shared_model.model
+tokenizer = shared_model.tokenizer
+
+def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], None, None]:
+    # 메모리 정리
+    shared_model.cleanup_memory()
+    
+    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+    
+    # 스트리머 설정
+    streamer = TextIteratorStreamer(tokenizer, ...)
+    
+    # 모델 생성 설정
+    generation_kwargs = dict(
+        inputs,
+        streamer=streamer,
+        max_new_tokens=1024,
+        temperature=0.7,
+        do_sample=True,
+        # ... 기타 설정
+    )
+    
+    # 스레드로 모델 생성
+    thread = threading.Thread(target=model.generate, kwargs=generation_kwargs)
+    thread.start()
+    
+    # 스트리밍 응답 처리
+    for new_text in streamer:
+        # ... 응답 처리
+```
+
+#### 새로운 코드 (vLLM HTTP API 사용)
+```python
+# vLLM 서버 호출용 httpx 사용
+import httpx
+
+def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], None, None]:
+    """vLLM 서버에 POST 요청하여 응답을 SSE 형식으로 반환"""
+    logger.info(f"[vLLM 호출] 프롬프트 길이: {len(prompt)}")
+    url = "http://localhost:8800/v1/chat/completions"
+    payload = {
+        "model": "/home/ubuntu/mistral/models--mistralai--Mistral-7B-Instruct-v0.3/snapshots/e0bc86c23ce5aae1db576c8cca6f06f1f73af2db",
+        "messages": [{"role": "user", "content": prompt}],
+        "stream": True
+    }
+
+    response_completed = False  # 응답 완료 여부를 추적하는 플래그
+
+    try:
+        with httpx.stream("POST", url, json=payload, timeout=60.0) as response:
+            full_response = ""
+            for line in response.iter_lines():
+                if line.startswith(b"data: "):
+                    try:
+                        json_data = json.loads(line[len(b"data: "):])
+                        delta = json_data["choices"][0]["delta"]
+                        token = delta.get("content", "")
+                        # ... 토큰 처리
+```
+
+### 2.2. 주요 변경사항
+
+#### 2.2.1. 모델 로딩 제거
+- **기존**: `shared_model.model`, `shared_model.tokenizer` 직접 사용
+- **변경**: vLLM 서버가 모델을 관리하므로 로컬 모델 로딩 불필요
+- **효과**: 메모리 사용량 대폭 감소, 서버 시작 시간 단축
+
+#### 2.2.2. HTTP API 통신 방식
+- **기존**: Python 스레드와 TextIteratorStreamer를 사용한 직접 추론
+- **변경**: httpx를 사용한 HTTP 스트리밍 통신
+- **효과**: 더 안정적인 스트리밍, 동시 요청 처리 개선
+
+#### 2.2.3. 토큰 처리 방식
+- **기존**: TextIteratorStreamer에서 직접 토큰 디코딩
+- **변경**: vLLM 서버에서 JSON 형태로 토큰 전송
+- **효과**: 토큰 디코딩 오버플로우 에러 해결
+
+#### 2.2.4. 메모리 관리 단순화
+- **기존**: 복잡한 메모리 정리 로직 (torch.cuda.empty_cache(), gc.collect())
+- **변경**: vLLM 서버가 메모리 관리하므로 로컬 메모리 정리 불필요
+- **효과**: 코드 단순화, 메모리 관리 오버헤드 제거
+
+### 2.3. JSON 파싱 로직 대폭 개선
+
+#### 2.3.1. 중복 JSON 제거 로직 추가
+**문제점**: LLM이 여러 개의 JSON을 한 번에 생성하여 파싱 오류 발생
+**해결책**: 첫 번째 완전한 JSON만 추출하는 로직 구현
+
+#### 기존 코드
+```python
+# JSON 문자열 추출
+json_match = re.search(r"```json\n([\s\S]*?)\n```", full_response.strip())
+if json_match:
+    json_string_to_parse = json_match.group(1).strip()
+else:
+    json_string_to_parse = full_response.strip()
+
+# 복잡한 정제 과정
+json_string_to_parse = re.sub(r',(\s*[}\]])', r'\1', json_string_to_parse)
+json_string_to_parse = re.sub(r',\s*,', ',', json_string_to_parse)
+# ... 기타 정제 과정
+```
+
+#### 새로운 코드
+```python
+# 중복 JSON 제거 - 첫 번째 완전한 JSON만 추출
+json_objects = []
+brace_count = 0
+start_idx = -1
+
+for i, char in enumerate(json_str):
+    if char == '{':
+        if brace_count == 0:
+            start_idx = i
+        brace_count += 1
+    elif char == '}':
+        brace_count -= 1
+        if brace_count == 0 and start_idx != -1:
+            json_obj = json_str[start_idx:i+1]
+            try:
+                json.loads(json_obj)
+                json_objects.append(json_obj)
+                break
+            except:
+                continue
+
+if json_objects:
+    json_str = json_objects[0]
+else:
+    # 기존 방식으로 fallback
+    if "{" in json_str and "}" in json_str:
+        json_str = json_str[json_str.find("{"):json_str.rfind("}")+1]
+
+# 추가 정제
+json_str = re.sub(r',\s*([}\]])', r'\1', json_str)  # 마지막 쉼표 제거
+json_str = re.sub(r',\s*,', ',', json_str)          # 연속 쉼표 제거
+json_str = re.sub(r'[ \t\r\f\v]+', ' ', json_str)   # 공백 정규화
+```
+
+#### 2.3.2. response_completed 플래그 추가
+**문제점**: SSE 스트리밍 중 중복 응답 전송 및 연결 종료 처리 문제
+**해결책**: 응답 완료 여부를 추적하는 플래그 시스템 구현
+
+```python
+response_completed = False  # 응답 완료 여부를 추적하는 플래그
+
+try:
+    with httpx.stream("POST", url, json=payload, timeout=60.0) as response:
+        # ... 스트리밍 처리 ...
+        
+        if cleaned_text and cleaned_text.strip() not in ["", "``", "```"] and not response_completed:
+            yield {
+                "event": "challenge",
+                "data": json.dumps({
+                    "status": 200,
+                    "message": "토큰 생성",
+                    "data": cleaned_text
+                }, ensure_ascii=False)
+            }
+            
+    # 최종 응답 처리
+    if not response_completed:
+        response_completed = True
+        yield {
+            "event": "close",
+            "data": json.dumps({
+                "status": 200,
+                "message": "모든 챌린지 추천 완료",
+                "data": parsed_data
+            }, ensure_ascii=False)
+        }
+        
+except Exception as e:
+    if not response_completed:
+        response_completed = True
+        yield {
+            "event": "error",
+            "data": json.dumps({
+                "status": 500,
+                "message": f"vLLM 호출 실패: {str(e)}",
+                "data": None
+            }, ensure_ascii=False)
+        }
+```
+
+#### 2.3.3. 토큰 정제 로직 개선
+**문제점**: 스트리밍 응답 중 불필요한 토큰 정제로 인한 데이터 손실
+**해결책**: 더 정교한 토큰 정제 로직 구현
+
+```python
+# 토큰 정제 - 순수 텍스트만 추출
+cleaned_text = token
+# JSON 관련 문자열 제거
+cleaned_text = re.sub(r'"(recommend|challenges|title|description)":\s*("|\')?', '', cleaned_text)
+# 마크다운 및 JSON 구조 제거
+cleaned_text = cleaned_text.replace("```json", "").replace("```", "").strip()
+cleaned_text = re.sub(r'["\']', '', cleaned_text)  # 따옴표 제거
+cleaned_text = re.sub(r'[\[\]{}]', '', cleaned_text)  # 괄호 제거
+cleaned_text = re.sub(r',\s*$', '', cleaned_text)  # 끝의 쉼표 제거
+cleaned_text = re.sub(r'[ \t\r\f\v]+', ' ', cleaned_text)  # \n은 제거 안 함
+cleaned_text = cleaned_text.strip()
+
+if cleaned_text and cleaned_text.strip() not in ["", "``", "```"] and not response_completed:
+    # SSE 응답 전송
+```
+
+#### 2.3.4. 에러 처리 강화
+**문제점**: 파싱 실패 시 디버깅 정보 부족
+**해결책**: 상세한 에러 로깅 및 원본 응답 저장
+
+```python
+except Exception as e:
+    logger.error(f"[vLLM 파싱 실패] {str(e)}")
+    logger.error(f"원본 응답: {full_response[:500]}...")  # 디버깅용 원본 응답 로깅
+    if not response_completed:
+        response_completed = True
+        yield {
+            "event": "error",
+            "data": json.dumps({
+                "status": 500,
+                "message": f"JSON 파싱 실패: {str(e)}",
+                "data": None
+            }, ensure_ascii=False)
+        }
+```
+
+### 2.4. 파싱 로직 개선 효과
+
+#### 2.4.1. 안정성 향상
+- **중복 JSON 제거**: LLM이 여러 JSON 생성 시 첫 번째만 안전하게 파싱
+- **response_completed 플래그**: 중복 응답 전송 방지
+- **에러 처리 강화**: 파싱 실패 시 상세한 디버깅 정보 제공
+
+#### 2.4.2. 성능 개선
+- **토큰 정제 최적화**: 불필요한 정제 과정 제거
+- **fallback 로직**: 새로운 파싱 실패 시 기존 방식으로 복구
+- **메모리 효율성**: 불필요한 데이터 누적 방지
+
+#### 2.4.3. 사용자 경험 개선
+- **안정적인 스트리밍**: 중단 없는 토큰 전송
+- **명확한 에러 메시지**: 문제 발생 시 원인 파악 용이
+- **일관된 응답 형식**: 성공/실패 모두 표준화된 형식
+
+## 3. 성능 개선 효과
+
+### 3.1. 메모리 사용량
+- **기존**: 4GB (로컬 모델 로딩)
+- **변경**: ~0GB (vLLM 서버가 별도로 관리)
+- **절약**: 100% 메모리 절약 (로컬 기준)
+
+### 3.2. 응답 속도
+- **기존**: 모델 로딩 시간 + 추론 시간
+- **변경**: HTTP 통신 시간 + 추론 시간
+- **개선**: 모델 로딩 오버헤드 제거로 응답 속도 향상
+
+### 3.3. 안정성
+- **기존**: 토큰 디코딩 오버플로우 에러, 메모리 부족 문제
+- **변경**: vLLM의 최적화된 추론 엔진으로 안정성 향상
+- **개선**: 에러 발생 빈도 대폭 감소
+
+### 3.4. 확장성
+- **기존**: 단일 프로세스에서 모델 관리
+- **변경**: vLLM 서버의 멀티프로세스/멀티스레드 지원
+- **개선**: 동시 요청 처리 능력 향상
+
+## 4. 주의사항 및 고려사항
+
+### 4.1. 의존성 추가
+```python
+# 새로운 의존성
+import httpx  # HTTP 클라이언트
+```
+
+### 4.2. 서버 관리
+- vLLM 서버를 별도 프로세스로 실행해야 함
+- 서버 재시작 시 vLLM 서버도 함께 재시작 필요
+- 포트 충돌 주의 (8800번 포트 사용)
+
+### 4.3. 네트워크 의존성
+- 로컬 HTTP 통신이므로 네트워크 지연 최소화
+- vLLM 서버 다운 시 전체 서비스 중단 가능성
+
+## 5. 현재 상태
+- vLLM 도입으로 성능 대폭 개선
+- 메모리 사용량 최적화
+- 안정성 향상
+- 코드 구조 단순화
+- 동시 요청 처리 능력 향상
