@@ -9,9 +9,37 @@ from typing import List, Optional
 from model.censor.LLM_censorship_model import CensorshipModel
 from model.censor.censorship_hyperclovax_model import HyperClovaxModel
 
+import asyncio
+from concurrent.futures import ProcessPoolExecutor
+
 router = APIRouter()
 # model = CensorshipModel()
-model = HyperClovaxModel()
+# model = HyperClovaxModel()
+
+# 모델 경로
+# GCP model_dir = "/home/ubuntu/hyperclovax_model/models--naver-hyperclovax--HyperCLOVAX-SEED-Text-Instruct-1.5B/snapshots/543a1be9d6233069842ffce73aa56a232a4f457b"
+# local model_dir = "./hyperclovax_model/models--naver-hyperclovax--HyperCLOVAX-SEED-Text-Instruct-1.5B/snapshots/543a1be9d6233069842ffce73aa56a232a4f457b"
+MODEL_PATH = "./hyperclovax_model/models--naver-hyperclovax--HyperCLOVAX-SEED-Text-Instruct-1.5B/snapshots/543a1be9d6233069842ffce73aa56a232a4f457b"
+MODEL_INSTANCE = None
+
+def init_model():
+    global MODEL_INSTANCE
+    MODEL_INSTANCE = HyperClovaxModel(MODEL_PATH)
+
+def model_worker(challenge_name, start_date, end_date, existing_list):
+    global MODEL_INSTANCE
+    return MODEL_INSTANCE.validate(challenge_name, start_date, end_date, existing_list)
+
+def warmup_task():
+    return "[Warmup] Model loaded"
+
+# CPU 코어 2개 사용 
+executor = ProcessPoolExecutor(max_workers=2, initializer=init_model)
+
+async def warmup_workers():
+    loop = asyncio.get_event_loop()
+    futures = [executor.submit(warmup_task) for _ in range(2)]
+    await asyncio.gather(*[asyncio.wrap_future(f) for f in futures])
 
 # 요청 데이터 모델
 class ChallengeInfo(BaseModel):
@@ -53,7 +81,7 @@ async def validate_challenge(req: ValidationRequest):
             "status": 400, "message": "끝 날짜는 필수 항목입니다.", "data": None
         })
 
-    if req.challenge is None or len(req.challenge) == 0:
+    if req.challenge is None or len(req.challenge) == 0:            # if not req.challenge: 
         return JSONResponse(
             status_code=200,
             content={
@@ -65,9 +93,10 @@ async def validate_challenge(req: ValidationRequest):
             }
         )
 
-    is_creatable, msg = await model.validate(
-        req.challengeName, req.startDate, req.endDate, req.challenge
-    )
+    future = executor.submit(model_worker, req.challengeName, req.startDate, req.endDate, [c.model_dump() for c in req.challenge])
+
+    is_creatable, msg = await asyncio.wrap_future(future)
+
     return JSONResponse(
         status_code=200,
         content={
