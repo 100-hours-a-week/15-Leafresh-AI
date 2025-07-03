@@ -1,5 +1,6 @@
 from google.cloud import pubsub_v1
 from model.verify.LLM_verify_model import ImageVerifyModel
+from model.verify.publisher_ai_to_be import publish_result
 import json
 import requests
 
@@ -10,7 +11,7 @@ load_dotenv()
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 
 project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
-subscription_id = os.getenv("PUBSUB_SUBSCRIPTION_PROD")
+subscription_id = os.getenv("PUBSUB_SUBSCRIPTION_BE_TO_AI_PROD")
 
 subscription_path = f"projects/{project_id}/subscriptions/{subscription_id}"
 
@@ -34,22 +35,22 @@ def run_worker():
             print(f"인증 결과: {result}")
 
             # '예' 여부가 정확히 일치할 때만 True
-            # is_verified = result.strip() == "예"
             is_verified = "예" in result.strip().lower()
 
-            # 콜백 URL 내 challengeId 치환
-            # -> CALLBACK_URL에 {verificationId}가 포함되는 경우, Python에서 실제 전송 전에 .format() 또는 f-string으로 치환해줘야함 
-            formatted_url = os.getenv("CALLBACK_URL_VERIFY").format(verificationId=data["verificationId"])
-
-
             # 결과 콜백 전송
-            requests.post(formatted_url, json={
+            payload = {
                 "type": data["type"],
                 "memberId": data["memberId"],
                 "challengeId": data["challengeId"],
+                "verificationId": data["verificationId"],
                 "date": data["date"],
                 "result": is_verified
-            })
+            }
+
+            message_id = publish_result(payload)
+
+            print(f"[PUBLISH] 인증 결과 발행 완료 (message ID: {message_id})")
+            print(f"[PUBLISH] Payload: {json.dumps(payload, ensure_ascii=False)}")
 
             message.ack()
 
@@ -58,6 +59,7 @@ def run_worker():
             message.nack()
 
     # 구독 시작
+    print(f"[SUB] 구독 시작 시도: Listening on {subscription_path}...")
     future = subscriber.subscribe(subscription_path, callback=callback)
-    print(f"Listening on {subscription_path}...")
+    print("[DEBUG] subscriber.subscribe() 호출 완료")
     future.result()
