@@ -156,3 +156,6 @@ accelerate==0.27.2
 
 bitsandbytes==0.43.1
 rq==2.4.0
+
+# === vLLM ===
+vllm>=0.4.0
