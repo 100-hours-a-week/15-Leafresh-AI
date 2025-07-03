@@ -65,7 +65,7 @@ async def validate_challenge(req: ValidationRequest):
             }
         )
 
-    is_creatable, msg = model.validate(
+    is_creatable, msg = await model.validate(
         req.challengeName, req.startDate, req.endDate, req.challenge
     )
     return JSONResponse(
