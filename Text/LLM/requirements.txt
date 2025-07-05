@@ -158,4 +158,5 @@ bitsandbytes==0.43.1
 rq==2.4.0
 
 # === vLLM ===
-vllm>=0.4.0
+# vLLM은 torch 설치 후 별도 설치 필요
+# vllm
