@@ -104,6 +104,8 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
     }
 
     response_completed = False  # 응답 완료 여부를 추적하는 플래그
+    token_buffer = ""  # 토큰을 누적할 버퍼
+    word_delimiters = [' ', '\n', '\t', '.', ',', '!', '?', ';', ':', '"', "'", '(', ')', '[', ']', '{', '}', '<', '>', '/', '\\', '|', '&', '*', '+', '-', '=', '_', '@', '#', '$', '%', '^', '~', '`']
 
     try:
         with httpx.stream("POST", url, json=payload, timeout=60.0) as response:
@@ -117,29 +119,57 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                         if token.strip() in ["```", "`", ""]:
                             continue  # 이런 토큰은 누적하지 않음
                         full_response += token
+                        token_buffer += token
                         logger.info(f"토큰 수신: {token[:20]}...")
 
-                        # 토큰 정제 - 순수 텍스트만 추출
-                        cleaned_text = token
-                        # JSON 관련 문자열 제거
-                        cleaned_text = re.sub(r'"(recommend|challenges|title|description)":\s*("|\')?', '', cleaned_text)
-                        # 마크다운                                                                                                                                                                                                                                                                                                                                                          및 JSON 구조 제거
-                        cleaned_text = cleaned_text.replace("```json", "").replace("```", "").strip()
-                        cleaned_text = re.sub(r'["\']', '', cleaned_text)  # 따옴표 제거
-                        cleaned_text = re.sub(r'[\[\]{}]', '', cleaned_text)  # 괄호 제거
-                        cleaned_text = re.sub(r',\s*$', '', cleaned_text)  # 끝의 쉼표 제거
-                        cleaned_text = re.sub(r'[ \t\r\f\v]+', ' ', cleaned_text)  # \n은 제거 안 함
-                        
-                        cleaned_text = cleaned_text.strip()
-                        if cleaned_text and cleaned_text.strip() not in ["", "``", "```"] and not response_completed:
-                            yield {
-                                "event": "challenge",
-                                "data": json.dumps({
-                                    "status": 200,
-                                    "message": "토큰 생성",
-                                    "data": cleaned_text
-                                }, ensure_ascii=False)
-                            }
+                        # 토큰 버퍼에서 단어 단위로 분리하여 스트리밍
+                        if any(delimiter in token_buffer for delimiter in word_delimiters):
+                            # 단어 경계를 찾아서 분리
+                            words = []
+                            current_word = ""
+                            for char in token_buffer:
+                                if char in word_delimiters:
+                                    if current_word:
+                                        words.append(current_word)
+                                        current_word = ""
+                                    words.append(char)
+                                else:
+                                    current_word += char
+                            
+                            if current_word:
+                                words.append(current_word)
+                            
+                            # 완성된 단어들만 스트리밍하고, 마지막 불완전한 단어는 버퍼에 유지
+                            if len(words) > 1:
+                                # 마지막 단어가 불완전할 수 있으므로 제외
+                                complete_words = words[:-1]
+                                token_buffer = words[-1] if words else ""
+                                
+                                for word in complete_words:
+                                    # 토큰 정제 - 순수 텍스트만 추출
+                                    cleaned_text = word
+                                    # JSON 관련 문자열 제거
+                                    cleaned_text = re.sub(r'"(recommend|challenges|title|description)":\s*("|\')?', '', cleaned_text)
+                                    # 마크다운 및 JSON 구조 제거
+                                    cleaned_text = cleaned_text.replace("```json", "").replace("```", "").strip()
+                                    cleaned_text = re.sub(r'["\']', '', cleaned_text)  # 따옴표 제거
+                                    cleaned_text = re.sub(r'[\[\]{}]', '', cleaned_text)  # 괄호 제거
+                                    cleaned_text = re.sub(r',\s*$', '', cleaned_text)  # 끝의 쉼표 제거
+                                    cleaned_text = re.sub(r'[ \t\r\f\v]+', ' ', cleaned_text)  # \n은 제거 안 함
+                                    
+                                    cleaned_text = cleaned_text.strip()
+                                    if cleaned_text and cleaned_text.strip() not in ["", "``", "```"] and not response_completed:
+                                        yield {
+                                            "event": "challenge",
+                                            "data": json.dumps({
+                                                "status": 200,
+                                                "message": "토큰 생성",
+                                                "data": cleaned_text
+                                            }, ensure_ascii=False)
+                                        }
+                            else:
+                                # 단어가 하나뿐이면 버퍼에 유지
+                                pass
                     except Exception as e:
                         logger.error(f"[vLLM 토큰 파싱 실패] {str(e)}")
                         continue

@@ -1696,3 +1696,193 @@ import httpx  # HTTP 클라이언트
 - 안정성 향상
 - 코드 구조 단순화
 - 동시 요청 처리 능력 향상
+
+# 2025-07-05 vLLM 스트리밍 토큰화 문제 해결
+
+## 1. vLLM 스트리밍 토큰화 방식 문제
+
+### 문제점
+- **기존 shared_model 방식**: Transformers의 `TextIteratorStreamer`를 사용해서 **단어 단위**로 토큰화되어 스트리밍됨
+- **현재 vLLM 방식**: vLLM의 스트리밍 API를 사용해서 **한 글자씩** 토큰화되어 스트리밍됨
+- **사용자 경험**: 클라이언트에서 한 글자씩 출력되어 부자연스러운 스트리밍 경험
+
+### 원인 분석
+```python
+# 기존 shared_model 방식 (단어 단위)
+for new_text in streamer:  # TextIteratorStreamer
+    # new_text는 보통 단어 단위로 출력
+    yield {"event": "challenge", "data": new_text}
+
+# 현재 vLLM 방식 (한 글자씩)
+for line in response.iter_lines():
+    if line.startswith(b"data: "):
+        json_data = json.loads(line[len(b"data: "):])
+        delta = json_data["choices"][0]["delta"]
+        token = delta.get("content", "")  # 한 글자씩 출력
+        yield {"event": "challenge", "data": token}
+```
+
+**vLLM의 스트리밍 API는 기본적으로 character-level streaming을 제공**하는 반면, Transformers의 `TextIteratorStreamer`는 token-level streaming을 제공
+
+1. Transformers TextIteratorStreamer (이전)
+    - Token-level streaming = 단어/구 단위로 토큰화
+2. vLLM 스트리밍 (현재)
+    - Character-level streaming = 한 글자씩 토큰화
+
+### 왜 이런 차이가 나는건가?
+- vLLM: 내부적으로 더 세밀한 토큰 단위로 처리하여 character-level로 스트리밍
+- TextIteratorStreamer: Transformers의 토크나이저가 단어/구 단위로 토큰을 디코딩하여 더 큰 단위로 스트리밍
+
+### 해결책
+**FastAPI 서버에서 토큰을 누적해서 단어 단위로 스트리밍하도록 수정**
+
+#### 2.1. 토큰 버퍼 시스템 구현
+
+```python
+def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], None, None]:
+    # ... 기존 코드 ...
+    
+    response_completed = False  # 응답 완료 여부를 추적하는 플래그
+    token_buffer = ""  # 토큰을 누적할 버퍼
+    word_delimiters = [' ', '\n', '\t', '.', ',', '!', '?', ';', ':', '"', "'", '(', ')', '[', ']', '{', '}', '<', '>', '/', '\\', '|', '&', '*', '+', '-', '=', '_', '@', '#', '$', '%', '^', '~', '`']
+
+    try:
+        with httpx.stream("POST", url, json=payload, timeout=60.0) as response:
+            full_response = ""
+            for line in response.iter_lines():
+                if line.startswith(b"data: "):
+                    try:
+                        json_data = json.loads(line[len(b"data: "):])
+                        delta = json_data["choices"][0]["delta"]
+                        token = delta.get("content", "")
+                        if token.strip() in ["```", "`", ""]:
+                            continue  # 이런 토큰은 누적하지 않음
+                        full_response += token
+                        token_buffer += token  # 토큰을 버퍼에 누적
+                        logger.info(f"토큰 수신: {token[:20]}...")
+
+                        # 토큰 버퍼에서 단어 단위로 분리하여 스트리밍
+                        if any(delimiter in token_buffer for delimiter in word_delimiters):
+                            # 단어 경계를 찾아서 분리
+                            words = []
+                            current_word = ""
+                            for char in token_buffer:
+                                if char in word_delimiters:
+                                    if current_word:
+                                        words.append(current_word)
+                                        current_word = ""
+                                    words.append(char)
+                                else:
+                                    current_word += char
+                            
+                            if current_word:
+                                words.append(current_word)
+                            
+                            # 완성된 단어들만 스트리밍하고, 마지막 불완전한 단어는 버퍼에 유지
+                            if len(words) > 1:
+                                # 마지막 단어가 불완전할 수 있으므로 제외
+                                complete_words = words[:-1]
+                                token_buffer = words[-1] if words else ""
+                                
+                                for word in complete_words:
+                                    # 토큰 정제 - 순수 텍스트만 추출
+                                    cleaned_text = word
+                                    # ... 정제 로직 ...
+                                    
+                                    if cleaned_text and cleaned_text.strip() not in ["", "``", "```"] and not response_completed:
+                                        yield {
+                                            "event": "challenge",
+                                            "data": json.dumps({
+                                                "status": 200,
+                                                "message": "토큰 생성",
+                                                "data": cleaned_text
+                                            }, ensure_ascii=False)
+                                        }
+                            else:
+                                # 단어가 하나뿐이면 버퍼에 유지
+                                pass
+```
+
+#### 2.2. 단어 구분자 정의
+```python
+word_delimiters = [
+    ' ', '\n', '\t', '.', ',', '!', '?', ';', ':', '"', "'", 
+    '(', ')', '[', ']', '{', '}', '<', '>', '/', '\\', '|', 
+    '&', '*', '+', '-', '=', '_', '@', '#', '$', '%', '^', '~', '`'
+]
+```
+
+#### 2.3. 버퍼 관리 로직
+- **토큰 누적**: vLLM에서 받은 한 글자씩의 토큰을 `token_buffer`에 누적
+- **단어 분리**: 구분자가 나타나면 버퍼를 단어 단위로 분리
+- **완성된 단어만 전송**: 마지막 불완전한 단어는 버퍼에 유지하여 다음 토큰과 결합
+- **스트리밍**: 완성된 단어들만 클라이언트에 전송
+
+## 3. 적용된 파일들
+
+### 3.1. base-info 모델 수정
+- **파일**: `Text/LLM/model/chatbot/LLM_chatbot_base_info_model.py`
+- **변경사항**: `get_llm_response` 함수에 토큰 버퍼 시스템 추가
+
+### 3.2. free-text 모델 수정
+- **파일**: `Text/LLM/model/chatbot/LLM_chatbot_free_text_model.py`
+- **변경사항**: `get_llm_response` 함수에 토큰 버퍼 시스템 추가
+
+## 4. 성능 개선 효과
+
+### 4.1. 사용자 경험 개선
+- **기존**: 한 글자씩 출력되어 부자연스러운 스트리밍
+- **개선 후**: 단어 단위로 출력되어 자연스러운 스트리밍
+- **예시**:
+  ```
+  기존: "에" → "포" → "장" → "재" → "활" → "용" → "이" → "나" → "회" → "수"
+  개선: "에포장재" → "활용이" → "나회수"
+  ```
+
+### 4.2. 네트워크 효율성
+- **기존**: 한 글자씩 전송으로 네트워크 오버헤드 증가
+- **개선 후**: 단어 단위로 전송하여 네트워크 효율성 향상
+- **효과**: SSE 이벤트 수 감소, 클라이언트 처리 부하 감소
+
+### 4.3. 안정성 향상
+- **기존**: 한 글자씩 처리로 인한 빈번한 이벤트 발생
+- **개선 후**: 단어 단위로 처리하여 안정적인 스트리밍
+- **효과**: 클라이언트에서 이벤트 처리 안정성 향상
+
+## 5. 주의사항 및 고려사항
+
+### 5.1. 버퍼 관리
+- **메모리 사용량**: 토큰 버퍼가 계속 누적되지 않도록 주의
+- **단어 구분자**: 한글과 영어 모두에서 적절히 작동하는 구분자 설정
+- **특수 문자**: JSON 구조나 마크다운 문법에서 사용되는 특수 문자 처리
+
+### 5.2. 성능 최적화
+- **구분자 체크**: `any(delimiter in token_buffer for delimiter in word_delimiters)`로 효율적 체크
+- **불완전한 단어 처리**: 마지막 단어는 버퍼에 유지하여 다음 토큰과 결합
+- **정제 로직**: JSON 구조나 마크다운 문법 제거 로직 유지
+
+### 5.3. 호환성
+- **기존 API**: 클라이언트 측에서는 변경 없이 동일한 API 사용
+- **SSE 형식**: 기존 SSE 이벤트 형식 유지
+- **에러 처리**: 기존 에러 처리 로직 그대로 유지
+
+## 6. 현재 상태
+- vLLM 스트리밍에서 단어 단위 토큰화 구현 완료
+- 사용자 경험 대폭 개선 (한 글자씩 → 단어 단위)
+- 네트워크 효율성 향상
+- 안정적인 스트리밍 제공
+- 기존 API 호환성 유지
+
+## 7. 향후 개선 방향
+
+### 7.1. 동적 단어 구분자
+- **현재**: 고정된 단어 구분자 리스트
+- **개선**: 언어별 동적 구분자 설정 (한글, 영어, 특수문자 등)
+
+### 7.2. 버퍼 크기 최적화
+- **현재**: 무제한 버퍼 누적
+- **개선**: 최대 버퍼 크기 제한으로 메모리 사용량 제어
+
+### 7.3. 성능 모니터링
+- **현재**: 기본적인 로깅
+- **개선**: 토큰 처리 속도, 버퍼 사용량 등 상세 모니터링
