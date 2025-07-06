@@ -85,6 +85,8 @@ custom_prompt = PromptTemplate(
 1. 모든 속성 이름과 문자열 값은 반드시 큰따옴표(")로 둘러싸야 합니다.
 2. recommend 필드에는 {{category}} 관련 추천 문구를 포함해야 합니다.
 3. 각 title 내용은 번호를 붙이세요.
+4. description은 반드시 한 문장으로만 작성하세요. (50자 이내)
+5. 전체 응답을 간결하게 유지하세요.
 
 출력 형식 예시:
 {escaped_format}
@@ -105,7 +107,8 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
 
     response_completed = False  # 응답 완료 여부를 추적하는 플래그
     token_buffer = ""  # 토큰을 누적할 버퍼
-    word_delimiters = [' ', '\n', '\t', '.', ',', '!', '?', ';', ':', '"', "'", '(', ')', '[', ']', '{', '}', '<', '>', '/', '\\', '|', '&', '*', '+', '-', '=', '_', '@', '#', '$', '%', '^', '~', '`']
+    # 한글과 영어 모두를 고려한 단어 구분자
+    word_delimiters = [' ', '\n', '\t', '.', ',', '!', '?', ';', ':', '"', "'", '(', ')', '[', ']', '{', '}', '<', '>', '/', '\\', '|', '&', '*', '+', '-', '=', '_', '@', '#', '$', '%', '^', '~', '`', '은', '는', '이', '가', '을', '를', '의', '에', '에서', '로', '으로', '와', '과', '도', '만', '부터', '까지', '나', '든지', '라도', '라서', '고', '며', '거나', '든가', '든']
 
     try:
         with httpx.stream("POST", url, json=payload, timeout=60.0) as response:
@@ -146,30 +149,30 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                                 token_buffer = words[-1] if words else ""
                                 
                                 for word in complete_words:
-                                    # 토큰 정제 - 순수 텍스트만 추출
+                        # 토큰 정제 - 순수 텍스트만 추출
                                     cleaned_text = word
-                                    # JSON 관련 문자열 제거
-                                    cleaned_text = re.sub(r'"(recommend|challenges|title|description)":\s*("|\')?', '', cleaned_text)
+                        # JSON 관련 문자열 제거
+                        cleaned_text = re.sub(r'"(recommend|challenges|title|description)":\s*("|\')?', '', cleaned_text)
                                     # 마크다운 및 JSON 구조 제거
-                                    cleaned_text = cleaned_text.replace("```json", "").replace("```", "").strip()
-                                    cleaned_text = re.sub(r'["\']', '', cleaned_text)  # 따옴표 제거
-                                    cleaned_text = re.sub(r'[\[\]{}]', '', cleaned_text)  # 괄호 제거
-                                    cleaned_text = re.sub(r',\s*$', '', cleaned_text)  # 끝의 쉼표 제거
-                                    cleaned_text = re.sub(r'[ \t\r\f\v]+', ' ', cleaned_text)  # \n은 제거 안 함
-                                    
-                                    cleaned_text = cleaned_text.strip()
-                                    if cleaned_text and cleaned_text.strip() not in ["", "``", "```"] and not response_completed:
-                                        yield {
-                                            "event": "challenge",
-                                            "data": json.dumps({
-                                                "status": 200,
-                                                "message": "토큰 생성",
-                                                "data": cleaned_text
-                                            }, ensure_ascii=False)
-                                        }
-                            else:
-                                # 단어가 하나뿐이면 버퍼에 유지
-                                pass
+                        cleaned_text = cleaned_text.replace("```json", "").replace("```", "").strip()
+                        cleaned_text = re.sub(r'["\']', '', cleaned_text)  # 따옴표 제거
+                        cleaned_text = re.sub(r'[\[\]{}]', '', cleaned_text)  # 괄호 제거
+                        cleaned_text = re.sub(r',\s*$', '', cleaned_text)  # 끝의 쉼표 제거
+                        cleaned_text = re.sub(r'[ \t\r\f\v]+', ' ', cleaned_text)  # \n은 제거 안 함
+                        
+                        cleaned_text = cleaned_text.strip()
+                        if cleaned_text and cleaned_text.strip() not in ["", "``", "```"] and not response_completed:
+                            yield {
+                                "event": "challenge",
+                                "data": json.dumps({
+                                    "status": 200,
+                                    "message": "토큰 생성",
+                                    "data": cleaned_text
+                                }, ensure_ascii=False)
+                            }
+                        else:
+                            # 단어가 하나뿐이면 버퍼에 유지
+                            pass
                     except Exception as e:
                         logger.error(f"[vLLM 토큰 파싱 실패] {str(e)}")
                         continue
