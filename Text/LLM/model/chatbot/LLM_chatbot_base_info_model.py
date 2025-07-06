@@ -58,8 +58,9 @@ base_prompt = PromptTemplate(
 주의사항:
 1. 모든 속성 이름과 문자열 값은 반드시 큰따옴표(")로 둘러싸야 합니다.
 2. recommend 필드에는 {{category}} 관련 추천 문구를 포함해야 합니다.
-3. challenges 항목은 반드시 JSON 배열(List) 형식이어야 합니다.
-4. 각 title 내용은 번호를 붙이세요.
+3. 각 title 내용은 번호를 붙이세요.
+4. description은 반드시 한 문장으로만 작성하세요. (50자 이내)
+5. 전체 응답을 간결하게 유지하세요.
 
 JSON 포맷:
 {escaped_format}
@@ -90,7 +91,8 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
 
     response_completed = False  # 응답 완료 여부를 추적하는 플래그
     token_buffer = ""  # 토큰을 누적할 버퍼
-    word_delimiters = [' ', '\n', '\t', '.', ',', '!', '?', ';', ':', '"', "'", '(', ')', '[', ']', '{', '}', '<', '>', '/', '\\', '|', '&', '*', '+', '-', '=', '_', '@', '#', '$', '%', '^', '~', '`']
+    # 한글과 영어 모두를 고려한 단어 구분자
+    word_delimiters = [' ', '\n', '\t', '.', ',', '!', '?', ';', ':', '"', "'", '(', ')', '[', ']', '{', '}', '<', '>', '/', '\\', '|', '&', '*', '+', '-', '=', '_', '@', '#', '$', '%', '^', '~', '`', '은', '는', '이', '가', '을', '를', '의', '에', '에서', '로', '으로', '와', '과', '도', '만', '부터', '까지', '나', '든지', '라도', '라서', '고', '며', '거나', '든가', '든']
 
     try:
         with httpx.stream("POST", url, json=payload, timeout=60.0) as response:
@@ -102,11 +104,11 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                         try:
                             json_data = json.loads(line[len(b"data: "):])
                             delta = json_data["choices"][0]["delta"]
-                            token = delta.get("content", "")
+                            token = delta.get("content", "") #vLLM에서 한글자씩 받음
                             if token.strip() in ["```", "`", ""]:
                                 continue  # 이런 토큰은 누적하지 않음
                             full_response += token
-                            token_buffer += token
+                            token_buffer += token # 토큰 버퍼에 한글자씩 누적
                             logger.info(f"토큰 수신: {token[:20]}...")
 
                             # 토큰 버퍼에서 단어 단위로 분리하여 스트리밍
@@ -129,10 +131,10 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                                 # 완성된 단어들만 스트리밍하고, 마지막 불완전한 단어는 버퍼에 유지
                                 if len(words) > 1:
                                     # 마지막 단어가 불완전할 수 있으므로 제외
-                                    complete_words = words[:-1]
-                                    token_buffer = words[-1] if words else ""
+                                    complete_words = words[:-1] # 완성된 단어들
+                                    token_buffer = words[-1] if words else "" # 마지막 불완전한 단어 버퍼에 유지
                                     
-                                    for word in complete_words:
+                                    for word in complete_words: # 완성된 단어들을 프론트엔드로 전송
                                         # 토큰 정제 - 순수 텍스트만 추출
                                         cleaned_text = word
                                         # JSON 관련 문자열 제거
@@ -151,7 +153,7 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                                                 "data": json.dumps({
                                                     "status": 200,
                                                     "message": "토큰 생성",
-                                                    "data": cleaned_text
+                                                    "data": cleaned_text #단어 단위 출력
                                                 }, ensure_ascii=False)
                                             }
                                 else:
