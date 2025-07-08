@@ -16,6 +16,7 @@ from router.censorship_router import validation_exception_handler, http_exceptio
 from router.censorship_router import warmup_workers
 
 from prometheus_client import start_http_server
+from router.monitoring_router import metrics_middleware
 
 load_dotenv()
 
@@ -57,3 +58,6 @@ app.include_router(health_router)
 # censorship model exceptions (422, 500, 503 etc.)
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(HTTPException, http_exception_handler)
+
+# 모니터링
+app.middleware("http")(metrics_middleware)
