@@ -10,6 +10,7 @@ import logging
 from huggingface_hub import login
 import gc
 # from Text.LLM.model.chatbot.shared_model import shared_model
+import requests
 
 # 로깅 설정
 logging.basicConfig(
@@ -17,6 +18,39 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# 환경 변수 로드
+load_dotenv()
+
+VLLM_API_URL = os.getenv("VLLM_API_URL", "http://localhost:8800/v1/chat/completions")
+
+class VLLMFeedbackClient:
+    def __init__(self):
+        self.api_url = VLLM_API_URL
+
+    def get_feedback(self, messages, temperature=0.7, max_tokens=512, model=...):
+        """
+        vLLM(OpenAI 호환) 서버에 채팅 메시지로 inference 요청
+        messages: OpenAI API 포맷의 메시지 리스트
+        """
+        headers = {"Content-Type": "application/json"}
+        payload = {
+            "model": "/home/ubuntu/mistral/models--mistralai--Mistral-7B-Instruct-v0.3/snapshots/e0bc86c23ce5aae1db576c8cca6f06f1f73af2db",
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens
+        }
+        try:
+            response = requests.post(self.api_url, headers=headers, json=payload, timeout=60)
+            response.raise_for_status()
+            data = response.json()
+            # OpenAI 호환 응답: data["choices"][0]["message"]["content"]
+            return data["choices"][0]["message"]["content"]
+        except Exception as e:
+            raise RuntimeError(f"vLLM API 요청 실패: {e}")
+
+# 전역 싱글톤 인스턴스
+shared_model = VLLMFeedbackClient() 
 
 class FeedbackModel:
     _instance = None
@@ -155,21 +189,18 @@ class FeedbackModel:
                 group_challenges=group_challenges
             )
 
+            messages = [
+                {"role": "system", "content": "너는 피드백 어시스턴트야."},
+                {"role": "user", "content": prompt}
+            ]
+
             try:
-                # Mistral 모델을 통한 피드백 생성
-                # quantization_config = BitsAndBytesConfig(...)
-                inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
-                prompt_length = inputs["input_ids"].shape[1]  # 프롬프트 토큰 길이
-                outputs = self.model.generate(
-                    **inputs,
-                    max_new_tokens=self.max_tokens,
+                # vLLM(OpenAI 호환) API 호출
+                full_feedback = shared_model.get_feedback(
+                    messages,
                     temperature=0.7,
-                    do_sample=True,
-                    pad_token_id=self.tokenizer.eos_token_id
+                    max_tokens=self.max_tokens
                 )
-                # 생성된 전체 시퀀스에서 프롬프트 이후 부분만 디코딩
-                generated_ids = outputs[0][prompt_length:]
-                full_feedback = self.tokenizer.decode(generated_ids, skip_special_tokens=True)
 
                 if not full_feedback.strip():
                     return {
@@ -178,7 +209,6 @@ class FeedbackModel:
                         "data": None
                     }
 
-                callback_url = f"http://34.64.183.21:8080/api/members/feedback/result"
                 return {
                     "status": 200,
                     "message": "피드백 결과 수신 완료",
@@ -204,8 +234,3 @@ class FeedbackModel:
                 "message": "서버 오류로 피드백 결과 저장에 실패했습니다. 잠시 후 다시 시도해주세요.",
                 "data": None
             }
-        finally:
-            # 메모리 정리
-            # 성공/실패 관계없이 항상 메모리 정리 실행
-            # shared_model.cleanup_memory()
-            logger.info("Feedback model memory cleanup completed")
