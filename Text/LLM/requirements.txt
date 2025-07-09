@@ -76,7 +76,7 @@ google-auth-oauthlib==1.2.0
 google-cloud-aiplatform==1.92.0
 google-cloud-bigquery==3.32.0
 google-cloud-core==2.4.3
-google-cloud-pubsub==2.21.0
+google-cloud-pubsub==2.18.4
 google-cloud-resource-manager==1.14.2
 google-cloud-storage==2.19.0
 google-crc32c==1.7.1

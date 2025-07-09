@@ -3,3 +3,7 @@
 .DS_Store
 __pycache__/
 __MACOSX/
+pids/
+logs/
+*.pid
+*.log
