@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 import sys
 import os
 import uvicorn
+import threading
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(project_root)
@@ -19,11 +20,17 @@ from Text.LLM.router.feedback_router import router as feedback_router
 from Text.LLM.router.feedback_router import feedback_exception_handler
 from Text.LLM.router.feedback_router import feedback_http_exception_handler
 
+from Text.LLM.router.crawler_router import router as crawler_router
+
 from fastapi.middleware.cors import CORSMiddleware
 
 from prometheus_client import start_http_server
 
 if __name__ == "__main__":
+    
+    from Text.Crawler.generate_challenge_docs import generate_challenge_docs
+    # 크롤러를 백그라운드에서 실행
+    threading.Thread(target=generate_challenge_docs, daemon=True).start()
     # 9104 포트에서 exporter 실행
     start_http_server(9104)
     uvicorn.run("main:app", host="0.0.0.0", port=8000)
@@ -49,6 +56,7 @@ app.add_middleware(
 # router 등록
 app.include_router(chatbot_router)
 app.include_router(feedback_router)
+app.include_router(crawler_router)
 
 # 글로벌 예외 핸들러 등록 (라우팅 기반)
 @app.exception_handler(RequestValidationError)
