@@ -21,6 +21,7 @@ from router.feedback_router import feedback_http_exception_handler
 from router.health_router import router as health_router
 
 from prometheus_client import start_http_server
+from router.monitoring_router import metrics_middleware
 
 load_dotenv()
 
@@ -45,6 +46,9 @@ app.include_router(censorship_router)
 app.include_router(chatbot_router)
 app.include_router(feedback_router)
 app.include_router(health_router)
+
+# 모니터링
+app.middleware("http")(metrics_middleware)
 
 # censorship model exceptions (422, 500, 503 etc.)
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
