@@ -6,6 +6,9 @@ from bs4 import BeautifulSoup
 import time
 from datetime import datetime
 from urllib.parse import urljoin, urlparse
+import os
+import sys
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 def clean_text(text):
     """텍스트 정제 함수"""
@@ -267,13 +270,18 @@ def generate_challenge_from_event(event_title):
     # 현재는 사용하지 않으므로 빈 템플릿 반환
     return None
 
-def generate_challenge_docs(file_path="challenge_docs.txt", mode="random", num_paragraphs=100):
+def generate_challenge_docs(file_path=None, mode="random", num_paragraphs=100):
     """
     Args:
-        file_path (str): 저장할 파일 경로
+        file_path (str): 저장할 파일 경로 (None이면 기본 경로 사용)
         mode (str): "fixed" (고정 데이터) 또는 "random" (랜덤 조합 데이터)
         num_paragraphs (int): 랜덤 모드일 때 생성할 문단 수 (default: 100)
     """
+    # 파일 경로가 지정되지 않으면 현재 스크립트 위치 기준으로 설정
+    if file_path is None:
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        file_path = os.path.join(current_dir, "challenge_docs.txt")
+    
     # 1. 기존 랜덤 문장들 (고정 데이터)
     random_sentences = [
         "도시에서 사무직으로 근무하며 점심시간에 제로웨이스트 도시락을 실천하고 있습니다.",
@@ -352,10 +360,14 @@ def generate_challenge_docs(file_path="challenge_docs.txt", mode="random", num_p
             if mode == "random":
                 # 3. 고정 데이터와 크롤링 데이터를 구분하여 저장
                 f.write("# 고정 데이터 챌린지\n")
+                # 고정 데이터를 개별 문장으로 저장
                 for _ in range(num_paragraphs // 2):  # 절반은 고정 데이터
                     num_sentences = random.randint(2, 5)
-                    paragraph = " ".join(random.sample(random_sentences, num_sentences))
-                    f.write(f"{clean_text(paragraph)}\n\n")
+                    selected_sentences = random.sample(random_sentences, num_sentences)
+                    # 각 문장을 개별 줄로 저장
+                    for sentence in selected_sentences:
+                        f.write(f"{clean_text(sentence)}\n")
+                    f.write("\n")  # 문단 구분
                 
                 f.write("\n# 크롤링 기반 챌린지\n")
                 for challenge in crawled_challenges:
@@ -370,6 +382,14 @@ def generate_challenge_docs(file_path="challenge_docs.txt", mode="random", num_p
 
     except Exception as e:
         print(f"파일 생성 실패: {str(e)}")
+    
+    # 임베딩 자동 실행
+    try:
+        print("임베딩 프로세스 시작...")
+        import embed_init
+        print("임베딩 완료!")
+    except Exception as e:
+        print(f"임베딩 실행 중 오류 발생: {str(e)}")
     
     return {
         "fixed_challenges": random_sentences,
