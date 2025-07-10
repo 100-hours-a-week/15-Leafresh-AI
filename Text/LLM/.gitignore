@@ -7,3 +7,4 @@ pids/
 logs/
 *.pid
 *.log
+challenge_docs.txt
