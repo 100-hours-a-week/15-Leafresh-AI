@@ -1,6 +1,5 @@
 # embed_init.py
 # Qdrant와 SentenceTransformerEmbeddings를 사용하여 문서 임베딩 및 저장
-from generate_challenge_docs import generate_challenge_docs
 from langchain_community.embeddings import SentenceTransformerEmbeddings
 from langchain_qdrant import Qdrant
 from qdrant_client import QdrantClient
@@ -80,79 +79,100 @@ def get_content_hash(content):
     """문서 내용의 해시값을 생성하여 중복 체크에 사용"""
     return hashlib.md5(content.encode()).hexdigest() #MD5 해시는 내용이 조금이라도 다르면 완전히 다른 해시값 생성함
 
-# 문서 생성 및 벡터 저장은 항상 실행
+# challenge_docs.txt 파일에서 문장 읽기
+current_dir = os.path.dirname(os.path.abspath(__file__))
+file_path = os.path.join(current_dir, "challenge_docs.txt")
+
+fixed_challenges = []
+crawled_challenges = []
+
 try:
-    # 크롤링 및 데이터 생성
-    result = generate_challenge_docs(file_path=None, mode="random")
-    fixed_challenges = result["fixed_challenges"]
-    crawled_challenges = result["crawled_challenges"]
-    
-    # 청크 분할
-    splitter = CharacterTextSplitter(chunk_size=300, chunk_overlap=20)
-    documents = []
-    seen_hashes = set()  # 중복 체크를 위한 해시값 저장
-    
-    # 1. 고정 데이터 처리
-    for challenge in fixed_challenges:
-        content_hash = get_content_hash(challenge)
-        if content_hash not in seen_hashes:
-            seen_hashes.add(content_hash)
-            # 고정 데이터의 메타데이터 추출
-            metadata = {
-                "category": (
-                    "제로웨이스트" if "제로웨이스트" in challenge or "플라스틱" in challenge or "분리수거" in challenge else
-                    "플로깅" if "플로깅" in challenge or "정화" in challenge or "청소" in challenge else
-                    "비건" if "비건" in challenge or "채식" in challenge or "식단" in challenge else
-                    "에너지절약" if "에너지" in challenge or "전기" in challenge or "냉난방" in challenge else
-                    "업사이클" if "업사이클" in challenge or "재활용" in challenge or "DIY" in challenge else
-                    "문화공유" if "공유" in challenge or "캠페인" in challenge or "워크숍" in challenge else
-                    "디지털탄소" if "디지털" in challenge or "이메일" in challenge or "클라우드" in challenge else
-                    "기타"
-                ),
-                "source": "기본데이터",
-                "content_hash": content_hash  # 해시값을 메타데이터에 저장
-            }
-            documents.append(Document(page_content=challenge, metadata=metadata))
-    
-    # 2. 크롤링 데이터 처리
-    for challenge in crawled_challenges:
-        content_hash = get_content_hash(challenge["content"])
-        if content_hash not in seen_hashes:
-            seen_hashes.add(content_hash)
-            challenge["metadata"]["content_hash"] = content_hash  # 해시값을 메타데이터에 저장
-            documents.append(Document(
-                page_content=challenge["content"],
-                metadata=challenge["metadata"]
-            ))
-    
-    # 청크 분할 및 임베딩
-    chunks = splitter.split_documents(documents)
-    
-    # 중복 제거된 청크만 저장
-    unique_chunks = []
-    seen_chunk_hashes = set()
-    
-    for chunk in chunks:
-        chunk_hash = get_content_hash(chunk.page_content)
-        if chunk_hash not in seen_chunk_hashes:
-            seen_chunk_hashes.add(chunk_hash)
-            chunk.metadata["chunk_hash"] = chunk_hash
-            unique_chunks.append(chunk)
-    
-    # 임베딩 및 Qdrant 저장
-    vectorstore.add_documents(unique_chunks)
-    print("문서 임베딩 및 Qdrant 저장 완료")
-    
-    try:
-        collection_info = qdrant_client.get_collection(COLLECTION_NAME)
-        vector_count = collection_info.points_count
-        print(f"현재 Qdrant에 저장된 총 누적 벡터 수: {vector_count}")
-    except Exception as e:
-        print(f"벡터 수 조회 중 오류 발생: {str(e)}")
+    with open(file_path, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+    mode = None
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#"):  # 빈 줄, 주석 무시
+            if "고정 데이터 챌린지" in line:
+                mode = "fixed"
+            elif "크롤링 기반 챌린지" in line:
+                mode = "crawled"
+            continue
+        if mode == "fixed":
+            fixed_challenges.append(line)
+        elif mode == "crawled":
+            # 크롤링 기반 챌린지는 여러 줄(문장+메타데이터)로 구성되어 있으므로, '카테고리:' 등으로 시작하지 않는 줄만 content로 저장
+            if not (line.startswith("카테고리:") or line.startswith("위치:") or line.startswith("직종:")):
+                crawled_challenges.append(line)
 except Exception as e:
-    print(f"문서 임베딩 중 오류 발생: {str(e)}")
+    print(f"challenge_docs.txt 파일 읽기 오류: {str(e)}")
+
+# 청크 분할
+splitter = CharacterTextSplitter(chunk_size=300, chunk_overlap=20)
+documents = []
+seen_hashes = set()  # 중복 체크를 위한 해시값 저장
+
+# 1. 고정 데이터 처리
+for challenge in fixed_challenges:
+    content_hash = get_content_hash(challenge)
+    if content_hash not in seen_hashes:
+        seen_hashes.add(content_hash)
+        # 고정 데이터의 메타데이터 추출
+        metadata = {
+            "category": (
+                "제로웨이스트" if "제로웨이스트" in challenge or "플라스틱" in challenge or "분리수거" in challenge else
+                "플로깅" if "플로깅" in challenge or "정화" in challenge or "청소" in challenge else
+                "비건" if "비건" in challenge or "채식" in challenge or "식단" in challenge else
+                "에너지절약" if "에너지" in challenge or "전기" in challenge or "냉난방" in challenge else
+                "업사이클" if "업사이클" in challenge or "재활용" in challenge or "DIY" in challenge else
+                "문화공유" if "공유" in challenge or "캠페인" in challenge or "워크숍" in challenge else
+                "디지털탄소" if "디지털" in challenge or "이메일" in challenge or "클라우드" in challenge else
+                "기타"
+            ),
+            "source": "기본데이터",
+            "content_hash": content_hash  # 해시값을 메타데이터에 저장
+        }
+        documents.append(Document(page_content=challenge, metadata=metadata))
+
+# 2. 크롤링 데이터 처리 (content만 임베딩)
+for challenge in crawled_challenges:
+    content_hash = get_content_hash(challenge)
+    if content_hash not in seen_hashes:
+        seen_hashes.add(content_hash)
+        metadata = {
+            "category": "크롤링",
+            "source": "크롤링데이터",
+            "content_hash": content_hash
+        }
+        documents.append(Document(page_content=challenge, metadata=metadata))
+
+# 청크 분할 및 임베딩
+chunks = splitter.split_documents(documents)
+
+# 중복 제거된 청크만 저장
+unique_chunks = []
+seen_chunk_hashes = set()
+
+for chunk in chunks:
+    chunk_hash = get_content_hash(chunk.page_content)
+    if chunk_hash not in seen_chunk_hashes:
+        seen_chunk_hashes.add(chunk_hash)
+        chunk.metadata["chunk_hash"] = chunk_hash
+        unique_chunks.append(chunk)
+
+# 임베딩 및 Qdrant 저장
+vectorstore.add_documents(unique_chunks)
+print("문서 임베딩 및 Qdrant 저장 완료")
+
+try:
+    collection_info = qdrant_client.get_collection(COLLECTION_NAME)
+    vector_count = collection_info.points_count
+    print(f"현재 Qdrant에 저장된 총 누적 벡터 수: {vector_count}")
+except Exception as e:
+    print(f"벡터 수 조회 중 오류 발생: {str(e)}")
 
 # 검색 함수 수정
+
 def search_similar_challenges(query, limit=5):
     """
     유사한 챌린지를 검색하는 함수
