@@ -93,14 +93,14 @@ echo -e "${YELLOW}4. vLLM 서버 시작 중...${NC}"
 if check_port 8800; then
     echo -e "${GREEN}vLLM 서버가 이미 실행 중입니다 (포트 8800)${NC}"
 else
-    # vLLM 서버 백그라운드 실행
+    # vLLM 서버 백그라운드 실행 (KV 캐시 부족 문제 해결을 위한 파라미터 추가)
     nohup python -m vllm.entrypoints.openai.api_server \
         --model /home/ubuntu/mistral/models--mistralai--Mistral-7B-Instruct-v0.3/snapshots/e0bc86c23ce5aae1db576c8cca6f06f1f73af2db \
         --host 0.0.0.0 \
-        --port 8800
+        --port 8800 \
+        --max-model-len 8192 \
+        --gpu-memory-utilization 0.9
         # --tensor-parallel-size 1 \
-        # --gpu-memory-utilization 0.8 \
-        # --max-model-len 4096 \
         # --enforce-eager \
         > $LOG_DIR/vllm.log 2>&1 &
     
