@@ -86,7 +86,8 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
     payload = {
         "model": "/home/ubuntu/mistral/models--mistralai--Mistral-7B-Instruct-v0.3/snapshots/e0bc86c23ce5aae1db576c8cca6f06f1f73af2db",
         "messages": [{"role": "user", "content": prompt}],
-        "stream": True
+        "stream": True,
+        "max_tokens": 2048
     }
 
     response_completed = False  # 응답 완료 여부를 추적하는 플래그
@@ -263,22 +264,62 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
             json_str = re.sub(r',\s*,', ',', json_str)
             json_str = re.sub(r'[ \t\r\f\v]+', ' ', json_str)
             logger.info(f"파싱 시도 문자열: {json_str}")
-            parsed_temp = json.loads(json_str)
-            parsed_data = base_parser.parse(json.dumps(parsed_temp))
-            eng_label = label_mapping[category]
-            if isinstance(parsed_data, dict) and "challenges" in parsed_data:
-                for challenge in parsed_data["challenges"]:
-                    challenge["category"] = eng_label
-            if not response_completed:
-                response_completed = True
-                yield {
-                    "event": "close",
-                    "data": json.dumps({
-                        "status": 200,
-                        "message": "모든 챌린지 추천 완료",
-                        "data": parsed_data
-                    }, ensure_ascii=False)
+            
+            # JSON 파싱 시도
+            try:
+                parsed_temp = json.loads(json_str)
+                # base_parser.parse() 안전하게 처리
+                try:
+                    parsed_data = base_parser.parse(json.dumps(parsed_temp))
+                except Exception as parse_error:
+                    logger.error(f"base_parser.parse() 실패: {str(parse_error)}")
+                    # fallback: 기본 구조로 변환
+                    if isinstance(parsed_temp, dict):
+                        parsed_data = {
+                            "recommend": parsed_temp.get("recommend", "챌린지를 추천합니다."),
+                            "challenges": parsed_temp.get("challenges", [])
+                        }
+                    else:
+                        # 완전한 fallback
+                        parsed_data = {
+                            "recommend": "챌린지를 추천합니다.",
+                            "challenges": []
+                        }
+                
+                # 카테고리 정보 추가
+                eng_label = label_mapping[category]
+                if isinstance(parsed_data, dict) and "challenges" in parsed_data:
+                    for challenge in parsed_data["challenges"]:
+                        challenge["category"] = eng_label
+                
+                if not response_completed:
+                    response_completed = True
+                    yield {
+                        "event": "close",
+                        "data": json.dumps({
+                            "status": 200,
+                            "message": "모든 챌린지 추천 완료",
+                            "data": parsed_data
+                        }, ensure_ascii=False)
+                    }
+            except json.JSONDecodeError as json_error:
+                logger.error(f"JSON 파싱 실패: {str(json_error)}")
+                # JSON이 아닌 경우 fallback
+                parsed_data = {
+                    "recommend": full_response.strip(),
+                    "challenges": []
                 }
+                if not response_completed:
+                    response_completed = True
+                    yield {
+                        "event": "close",
+                        "data": json.dumps({
+                            "status": 200,
+                            "message": "모든 챌린지 추천 완료",
+                            "data": parsed_data
+                        }, ensure_ascii=False)
+                    }
+                    
         except Exception as e:
             logger.error(f"[vLLM 파싱 실패] {str(e)}")
             logger.error(f"원본 응답: {full_response[:500]}...")
