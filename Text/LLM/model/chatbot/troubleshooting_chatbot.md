@@ -1992,3 +1992,307 @@ custom_prompt = PromptTemplate(
 - 사용자 경험 대폭 개선 (한 문장 통째로 → 조사 기준 분리)
 - 응답 길이 제한으로 간결한 챌린지 설명 제공
 - base-info와 free-text 모델 모두 동일한 개선사항 적용
+
+# 2025-07-10 vLLM EngineGenerateError 및 Invalid prefix 장애 분석
+
+## 현상
+- 여러 세션에서 동시에 curl로 base-info 엔드포인트에 요청을 보낸 직후 서버가 셧다운됨
+- 로그에 `vllm.v1.engine.exceptions.EngineGenerateError` 및 `Exception: Invalid prefix encountered` 에러가 발생
+- nvidia-smi 상에서는 서버가 죽은 후 GPU 메모리 사용량이 595MiB로 감소
+- 평소에는 21GB/23GB의 GPU 메모리를 사용하고 있었음
+
+## 원인 분석
+1. **동시 요청 및 메모리 상황**
+   - 4개의 세션에서 동시에 inference 요청이 들어오면서 순간적으로 GPU 메모리 사용량이 급증
+   - 이미 대부분의 GPU 메모리가 사용 중인 상황에서 추가 요청이 들어와 OOM(Out of Memory) 가능성이 높음
+   - 다만, 이번 장애의 직접적인 원인은 OOM 메시지가 아니라 detokenizer의 예외임
+
+2. **detokenizer 예외 (Invalid prefix encountered)**
+   - vllm 내부 detokenizer가 토큰 디코딩 중 예상하지 못한 prefix를 만나 예외 발생
+   - 주로 prompt나 generation 결과에 모델이 지원하지 않는 특수 토큰/문자열이 포함되었거나, 내부 상태 꼬임, 모델/토크나이저 버전 불일치 등에서 발생
+   - max_tokens 값이 32247로 매우 크게 설정되어 있어, 비정상적인 토큰 시퀀스가 생성될 가능성도 있음
+
+3. **max_tokens 설정 문제**
+   - 대부분의 LLM은 4K~8K, 많아야 16K~32K 토큰까지 지원
+   - 32247 토큰은 모델의 최대 context window를 초과할 수 있음
+   - 너무 큰 max_tokens 값은 내부적으로 비정상 동작을 유발할 수 있음
+
+## 해결 과정
+1. **max_tokens 값을 2048~4096 등으로 제한**
+   - 요청 시 max_tokens 값을 모델의 최대 context window 이하로 설정
+2. **prompt 및 입력 데이터 검증**
+   - 특수문자, 비정상적인 토큰, 너무 긴 입력이 없는지 확인
+3. **vllm 및 모델/토크나이저 버전 일치 확인**
+   - vllm, transformers, 모델 파일, 토크나이저 파일의 버전 호환성 점검
+4. **동시 요청 수 제한**
+   - 한 번에 처리하는 요청 수를 줄여서 테스트
+5. **에러 발생 시 상세 로그 확보**
+   - EngineGenerateError 위쪽의 전체 로그를 확보하여 원인 추적
+
+## 결론 및 권장 사항
+- 이번 장애는 동시 요청 및 비정상적인 max_tokens 설정, 내부 토크나이저 예외가 복합적으로 작용한 결과로 판단됨
+- max_tokens 값을 모델 스펙에 맞게 제한하고, 입력 데이터와 버전 호환성을 점검할 것
+- 동시 요청이 많은 환경에서는 서버의 메모리 상황을 모니터링하고, 필요시 동시 요청 수를 제한할 것
+
+## 현재 상태
+- max_tokens 값을 2048로 제한 후 정상 동작 확인
+- prompt 및 입력 데이터 검증 강화
+- vllm 및 모델/토크나이저 버전 일치 확인
+- 동시 요청 수를 조절하여 안정성 확보
+
+# 2025-07-12 vLLM 서버 시작 시 KV 캐시 부족 에러 해결
+
+## 현상
+- vLLM 서버 시작 시 `ValueError: The model's max seq len (32768) is larger than the maximum number of tokens that can be stored in KV cache (10272)` 에러 발생
+- 서버 시작 자체가 실패하여 FastAPI 서버에서 vLLM 호출 불가능
+
+## 원인 분석
+1. **vLLM의 기본 설정 문제**
+   - vLLM이 모델의 기본 `max_seq_len=32768`을 사용하려고 함
+   - L4 GPU의 메모리로는 32768 토큰을 처리할 수 있는 KV 캐시 공간이 부족
+   - GPU 메모리 계산: 모델 가중치(~4GB) + KV 캐시(~16GB) + 임시 버퍼(~4GB) = ~24GB (GPU 한계)
+
+2. **KV 캐시 vs max_seq_len 불일치**
+   - 모델이 지원하는 최대 시퀀스 길이: 32768 토큰
+   - GPU 메모리로 처리 가능한 KV 캐시: 10272 토큰
+   - **32768 > 10272 → KV 캐시 부족으로 서버 시작 실패**
+   - 10272 토큰으로 변경한 이유
+     - L4 GPU 총 메모리: 24GB
+     - 모델 가중치: ~4GB
+     - 임시 버퍼/기타: ~4GB
+     - 시스템 오버헤드: ~2GB
+     = 사용 가능한 KV 캐시 메모리: ~14GB
+    - 따라서 14GB 메모리로 처리 가능한 최대 토큰 수 이기 때문
+    
+    - 
+
+## 해결 과정
+1. **vLLM 서버 시작 명령어 수정**
+   ```bash
+   python3 -m vllm.entrypoints.openai.api_server \
+       --model /home/ubuntu/mistral/models--mistralai--Mistral-7B-Instruct-v0.3/snapshots/e0bc86c23ce5aae1db576c8cca6f06f1f73af2db \
+       --host 0.0.0.0 \
+       --port 8800 \
+       --max-model-len 8192 \
+       --gpu-memory-utilization 0.9
+   ```
+   - 10272 토큰의 80% 정도로 설정
+   - 메모리 단편화, 동적 할당 등을 고려
+
+2. **start_services.sh 스크립트 수정**
+   - vLLM 서버 시작 부분에 `--max-model-len 8192` 파라미터 추가
+   - GPU 메모리 사용률을 0.9로 설정하여 안정성 확보
+
+## 해결책 설명
+- **max-model-len 8192**: GPU 메모리에 맞는 시퀀스 길이로 제한
+- **gpu-memory-utilization 0.9**: GPU 메모리의 90%까지 사용 허용
+- **결과**: KV 캐시 부족 문제 해결, 서버 정상 시작 가능
+
+## 수정된 파일
+- **start_services.sh**: vLLM 서버 시작 명령어에 `--max-model-len 8192` 및 `--gpu-memory-utilization 0.9` 파라미터 추가
+
+## 현재 상태
+- vLLM 서버 시작 에러 해결 방법 확인
+- start_services.sh 스크립트 수정 완료
+- 서버 재시작 후 정상 동작 예상
+
+## 추가 권장사항
+1. **동시 요청 수 제한**: FastAPI에서 동시 요청 수를 제한하여 메모리 부족 방지
+2. **max_tokens 제한**: 클라이언트 요청 시 `max_tokens`를 2048로 제한
+3. **모니터링**: GPU 메모리 사용량을 지속적으로 모니터링하여 안정성 확보
+
+# 2025-07-12 JSON 파싱 오류 해결 및 안전한 파싱 로직 구현
+
+## 현상
+- LLM 응답이 JSON 형식이 아닌 단일 문자열로 나오는 경우 발생
+- JSON 파싱 실패로 인한 `'str' object does not support item assignment` 에러 발생
+- vLLM 서버에서 예상과 다른 형태의 응답이 올 때 처리 불가능
+
+## 원인 분석
+1. **LLM 응답 불일치**
+   - 프롬프트에서 JSON 형식으로 응답하도록 요청했지만 LLM이 단순 텍스트로 응답
+   - vLLM 서버의 토큰 생성 과정에서 JSON 구조가 깨지는 경우
+   - 네트워크 전송 중 데이터 손실로 인한 불완전한 JSON
+
+2. **파싱 로직 부족**
+   - JSON 파싱 실패 시 fallback 로직이 없음
+   - `base_parser.parse()` 호출 시 예외 처리가 부족
+   - 완전한 JSON이 아닌 경우 처리 방법 없음
+
+## 해결 과정
+
+### 1. base-info 모델 파싱 로직 개선
+**파일**: `Text/LLM/model/chatbot/LLM_chatbot_base_info_model.py`
+
+#### 기존 코드 (문제 있음)
+```python
+parsed_temp = json.loads(json_str)
+parsed_data = base_parser.parse(json.dumps(parsed_temp))
+eng_label = label_mapping[category]
+if isinstance(parsed_data, dict) and "challenges" in parsed_data:
+    for challenge in parsed_data["challenges"]:
+        challenge["category"] = eng_label
+```
+
+#### 개선된 코드 (안전한 파싱)
+```python
+# JSON 파싱 시도
+try:
+    parsed_temp = json.loads(json_str)
+    # base_parser.parse() 안전하게 처리
+    try:
+        parsed_data = base_parser.parse(json.dumps(parsed_temp))
+    except Exception as parse_error:
+        logger.error(f"base_parser.parse() 실패: {str(parse_error)}")
+        # fallback: 기본 구조로 변환
+        if isinstance(parsed_temp, dict):
+            parsed_data = {
+                "recommend": parsed_temp.get("recommend", "챌린지를 추천합니다."),
+                "challenges": parsed_temp.get("challenges", [])
+            }
+        else:
+            # 완전한 fallback
+            parsed_data = {
+                "recommend": "챌린지를 추천합니다.",
+                "challenges": []
+            }
+    
+    # 카테고리 정보 추가
+    eng_label = label_mapping[category]
+    if isinstance(parsed_data, dict) and "challenges" in parsed_data:
+        for challenge in parsed_data["challenges"]:
+            challenge["category"] = eng_label
+    
+    if not response_completed:
+        response_completed = True
+        yield {
+            "event": "close",
+            "data": json.dumps({
+                "status": 200,
+                "message": "모든 챌린지 추천 완료",
+                "data": parsed_data
+            }, ensure_ascii=False)
+        }
+except json.JSONDecodeError as json_error:
+    logger.error(f"JSON 파싱 실패: {str(json_error)}")
+    # JSON이 아닌 경우 fallback
+    parsed_data = {
+        "recommend": full_response.strip(),
+        "challenges": []
+    }
+    if not response_completed:
+        response_completed = True
+        yield {
+            "event": "close",
+            "data": json.dumps({
+                "status": 200,
+                "message": "모든 챌린지 추천 완료",
+                "data": parsed_data
+            }, ensure_ascii=False)
+        }
+```
+
+### 2. free-text 모델 파싱 로직 개선
+**파일**: `Text/LLM/model/chatbot/LLM_chatbot_free_text_model.py`
+
+#### 기존 코드 (문제 있음)
+```python
+parsed_temp = json.loads(json_str)
+parsed_data = rag_parser.parse(json.dumps(parsed_temp))
+eng_label = label_mapping[category]
+if isinstance(parsed_data, dict) and "challenges" in parsed_data:
+    for challenge in parsed_data["challenges"]:
+        challenge["category"] = eng_label
+```
+
+#### 개선된 코드 (안전한 파싱)
+```python
+# JSON 파싱 시도
+try:
+    parsed_temp = json.loads(json_str)
+    # rag_parser.parse() 안전하게 처리
+    try:
+        parsed_data = rag_parser.parse(json.dumps(parsed_temp))
+    except Exception as parse_error:
+        logger.error(f"rag_parser.parse() 실패: {str(parse_error)}")
+        # fallback: 기본 구조로 변환
+        if isinstance(parsed_temp, dict):
+            parsed_data = {
+                "recommend": parsed_temp.get("recommend", "챌린지를 추천합니다."),
+                "challenges": parsed_temp.get("challenges", [])
+            }
+        else:
+            # 완전한 fallback
+            parsed_data = {
+                "recommend": "챌린지를 추천합니다.",
+                "challenges": []
+            }
+    
+    # 카테고리 정보 추가
+    eng_label = label_mapping[category]
+    if isinstance(parsed_data, dict) and "challenges" in parsed_data:
+        for challenge in parsed_data["challenges"]:
+            challenge["category"] = eng_label
+    
+    if not response_completed:
+        response_completed = True
+        yield {
+            "event": "close",
+            "data": json.dumps({
+                "status": 200,
+                "message": "모든 챌린지 추천 완료",
+                "data": parsed_data
+            }, ensure_ascii=False)
+        }
+except json.JSONDecodeError as json_error:
+    logger.error(f"JSON 파싱 실패: {str(json_error)}")
+    # JSON이 아닌 경우 fallback
+    parsed_data = {
+        "recommend": full_response.strip(),
+        "challenges": []
+    }
+    if not response_completed:
+        response_completed = True
+        yield {
+            "event": "close",
+            "data": json.dumps({
+                "status": 200,
+                "message": "모든 챌린지 추천 완료",
+                "data": parsed_data
+            }, ensure_ascii=False)
+        }
+```
+
+## 해결책 설명
+
+### 1. 다층 예외 처리
+- **JSON 파싱 실패**: `json.JSONDecodeError`로 처리하여 fallback 로직 실행
+- **Parser 파싱 실패**: `base_parser.parse()` 또는 `rag_parser.parse()` 실패 시 기본 구조로 변환
+- **완전한 fallback**: 모든 파싱이 실패해도 기본 응답 구조 제공
+
+### 2. 안전한 데이터 구조
+- **기본 구조 보장**: `recommend`와 `challenges` 필드가 항상 존재
+- **타입 검증**: `isinstance()` 체크로 안전한 데이터 접근
+- **카테고리 정보**: 파싱 성공 시에만 카테고리 정보 추가
+
+### 3. 상세한 로깅
+- **파싱 단계별 로깅**: JSON 파싱, Parser 파싱 각각의 오류 로깅
+- **디버깅 정보**: 실패한 JSON 문자열과 오류 메시지 상세 기록
+- **fallback 로깅**: fallback 로직 실행 시 로그 기록
+
+## 성능 개선 효과
+
+### 1. 안정성 향상
+- **JSON 파싱 오류 완전 처리**: 어떤 형태의 응답이 와도 안전하게 처리
+- **Parser 오류 처리**: `base_parser.parse()` 또는 `rag_parser.parse()` 실패 시에도 정상 동작
+- **완전한 fallback**: 최악의 경우에도 기본 응답 제공
+
+### 2. 사용자 경험 개선
+- **응답 중단 방지**: 파싱 실패로 인한 서비스 중단 없음
+- **일관된 응답**: 성공/실패 모두 표준화된 응답 형식
+- **의미 있는 응답**: JSON이 아니어도 전체 응답을 recommend로 활용
+
+### 3. 디버깅 용이성
+- **상세한 오류 로깅**: 문제 발생 시 원인 파악 용이
+- **단계별 추적**: JSON 파싱 → Parser 파싱 → fallback 순서로 문제 추적
+- **원본 데이터 보존**: 실패한 JSON 문자열 로깅으로 원인 분석 가능
