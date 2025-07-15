@@ -34,7 +34,7 @@ def warmup_task():
     return "[Warmup] Model loaded"
 
 # CPU 코어 2개 사용 
-executor = ProcessPoolExecutor(max_workers=2, initializer=init_model)
+executor = ProcessPoolExecutor(max_workers=1, initializer=init_model) # 현재 임의로 변경 
 
 async def warmup_workers():
     loop = asyncio.get_event_loop()

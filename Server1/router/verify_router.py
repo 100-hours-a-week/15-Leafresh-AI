@@ -4,7 +4,8 @@ from pydantic import BaseModel
 from typing import Optional
 
 from model.verify.LLM_verify_model import ImageVerifyModel
-from model.verify.publisher_be_to_ai import add_task
+# from model.verify.publisher_be_to_ai import add_task
+from model.verify.publisher_be_to_ai_aws import add_task
 
 router = APIRouter()
 verifier = ImageVerifyModel()
