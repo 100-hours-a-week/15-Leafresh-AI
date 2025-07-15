@@ -26,6 +26,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from prometheus_client import start_http_server
 
+# 모니터링 미들웨어 import
+from router.monitoring_router import metrics_middleware
+
 if __name__ == "__main__":
     
     from Text.Crawler.generate_challenge_docs import generate_challenge_docs
@@ -40,7 +43,11 @@ load_dotenv()
 # app 초기화
 app = FastAPI()
 
-# CORS 미들웨어 추가
+# 메트릭 미들웨어
+# 모든 요청의 시작과 끝을 측정해야 하기에 먼저 설정
+app.middleware("http")(metrics_middleware)
+
+# CORS 미들웨어
 origins = [
     "*"
 ]

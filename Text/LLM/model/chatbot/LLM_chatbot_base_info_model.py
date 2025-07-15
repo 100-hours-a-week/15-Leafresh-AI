@@ -40,7 +40,7 @@ logger.info("Using shared Mistral model for base-info chatbot")
 
 # base-info_response_schemas 정의
 base_response_schemas = [
-    ResponseSchema(name="recommend", description="추천 텍스트를 한글로 한 문장으로 출력해주고 실제 줄바꿈(엔터)으로 구분해 주세요. (예: '이런 챌린지를 추천합니다.')"),
+    ResponseSchema(name="recommend", description="추천 텍스트를 한글로 한 문장으로 출력해 주세요. (예: '이런 챌린지를 추천합니다.')"),
     ResponseSchema(name="challenges", description="추천 챌린지 리스트, 각 항목은 title, description 포함, description은 한글로 한 문장으로 요약해주세요.")
 ]
 
@@ -59,8 +59,7 @@ base_prompt = PromptTemplate(
 1. 모든 속성 이름과 문자열 값은 반드시 큰따옴표(")로 둘러싸야 합니다.
 2. recommend 필드에는 {{category}} 관련 추천 문구를 포함해야 합니다.
 3. 각 title 내용은 번호를 붙이세요.
-4. description은 반드시 한 문장으로만 작성하세요. (50자 이내)
-5. 전체 응답을 간결하게 유지하세요.
+4. description은 한 문장으로만 작성하세요. (50자 이내)
 
 JSON 포맷:
 {escaped_format}
@@ -92,8 +91,8 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
 
     response_completed = False  # 응답 완료 여부를 추적하는 플래그
     token_buffer = ""  # 토큰을 누적할 버퍼
-    # 한글과 영어 모두를 고려한 단어 구분자
-    word_delimiters = [' ', '\n', '\t', '.', ',', '!', '?', ';', ':', '"', "'", '(', ')', '[', ']', '{', '}', '<', '>', '/', '\\', '|', '&', '*', '+', '-', '=', '_', '@', '#', '$', '%', '^', '~', '`', '은', '는', '이', '가', '을', '를', '의', '에', '에서', '로', '으로', '와', '과', '도', '만', '부터', '까지', '나', '든지', '라도', '라서', '고', '며', '거나', '든가', '든']
+    # 한글과 영어 모두를 고려한 단어 구분자 (줄바꿈 제외)
+    word_delimiters = [' ', '\t', '.', ',', '!', '?', ';', ':', '"', "'", '(', ')', '[', ']', '{', '}', '<', '>', '/', '|', '&', '*', '+', '-', '=', '_', '@', '#', '$', '%', '^', '~', '`', '은', '는', '이', '가', '을', '를', '의', '에', '에서', '로', '으로', '와', '과', '도', '만', '부터', '까지', '나', '든지', '라도', '라서', '고', '며', '거나', '든가', '든']
 
     try:
         with httpx.stream("POST", url, json=payload, timeout=60.0) as response:
@@ -143,12 +142,24 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                                         # 마크다운 및 JSON 구조 제거
                                         cleaned_text = cleaned_text.replace("```json", "").replace("```", "").strip()
                                         cleaned_text = re.sub(r'["\']', '', cleaned_text)  # 따옴표 제거
-                                        cleaned_text = re.sub(r'[\[\]{}]', '', cleaned_text)  # 괄호 제거
+                                        cleaned_text = re.sub(r'[\[\]{}$]', '', cleaned_text)  # 괄호와 $ 제거
                                         cleaned_text = re.sub(r',\s*$', '', cleaned_text)  # 끝의 쉼표 제거
-                                        cleaned_text = re.sub(r'[ \t\r\f\v]+', ' ', cleaned_text)  # \n은 제거 안 함
+                                        # 줄바꿈 보존: \n은 그대로 두고 다른 공백 문자만 제거
+                                        cleaned_text = re.sub(r'[ \t\r\f\v]+', ' ', cleaned_text)  # \n 제외 공백만 제거
+                                        # 이스케이프된 문자들을 실제 문자로 변환
+                                        cleaned_text = cleaned_text.replace('\\\\n', '\n')  # 이중 이스케이프된 줄바꿈을 실제 줄바꿈으로 변환
+                                        cleaned_text = cleaned_text.replace('\\n', '\n')  # 이스케이프된 줄바꿈을 실제 줄바꿈으로 변환
+                                        # 백슬래시 제거 (줄바꿈이 아닌 경우)
+                                        cleaned_text = cleaned_text.replace('\\\\', '')  # 이중 백슬래시 제거
+                                        cleaned_text = cleaned_text.replace('\\', '')  # 단일 백슬래시 제거
+                                        # 추가: 연속된 공백을 하나로 정리하되 줄바꿈은 보존
+                                        cleaned_text = re.sub(r' +', ' ', cleaned_text)  # 공백만 정리
                                         
                                         cleaned_text = cleaned_text.strip()
                                         if cleaned_text and cleaned_text.strip() not in ["", "``", "```"] and not response_completed:
+                                            # title 내용이 끝날 때 줄바꿈 추가 (번호.으로 끝나는 경우)
+                                            if re.search(r'\d+\.$', cleaned_text) or cleaned_text.endswith('title') or cleaned_text.endswith('description'):
+                                                cleaned_text += '\n'
                                             yield {
                                                 "event": "challenge",
                                                 "data": json.dumps({
@@ -206,12 +217,24 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                                         # 마크다운 및 JSON 구조 제거
                                         cleaned_text = cleaned_text.replace("```json", "").replace("```", "").strip()
                                         cleaned_text = re.sub(r'["\']', '', cleaned_text)  # 따옴표 제거
-                                        cleaned_text = re.sub(r'[\[\]{}]', '', cleaned_text)  # 괄호 제거
+                                        cleaned_text = re.sub(r'[\[\]{}$]', '', cleaned_text)  # 괄호와 $ 제거
                                         cleaned_text = re.sub(r',\s*$', '', cleaned_text)  # 끝의 쉼표 제거
-                                        cleaned_text = re.sub(r'[ \t\r\f\v]+', ' ', cleaned_text)  # \n은 제거 안 함
+                                        # 줄바꿈 보존: \n은 그대로 두고 다른 공백 문자만 제거
+                                        cleaned_text = re.sub(r'[ \t\r\f\v]+', ' ', cleaned_text)  # \n 제외 공백만 제거
+                                        # 이스케이프된 문자들을 실제 문자로 변환
+                                        cleaned_text = cleaned_text.replace('\\\\n', '\n')  # 이중 이스케이프된 줄바꿈을 실제 줄바꿈으로 변환
+                                        cleaned_text = cleaned_text.replace('\\n', '\n')  # 이스케이프된 줄바꿈을 실제 줄바꿈으로 변환
+                                        # 백슬래시 제거 (줄바꿈이 아닌 경우)
+                                        cleaned_text = cleaned_text.replace('\\\\', '')  # 이중 백슬래시 제거                                        cleaned_text = cleaned_text.replace('\\\', '')  # 
+                                        cleaned_text = cleaned_text.replace('\\', '')  # 단일 백슬래시 제거
+                                        # 추가: 연속된 공백을 하나로 정리하되 줄바꿈은 보존
+                                        cleaned_text = re.sub(r' +', ' ', cleaned_text)  # 공백만 정리
                                         
                                         cleaned_text = cleaned_text.strip()
                                         if cleaned_text and cleaned_text.strip() not in ["", "``", "```"] and not response_completed:
+                                            # title 내용이 끝날 때 줄바꿈 추가 (번호.으로 끝나는 경우)
+                                            if re.search(r'\d+\.$', cleaned_text) or cleaned_text.endswith('title') or cleaned_text.endswith('description'):
+                                                cleaned_text += '\n'
                                             yield {
                                                 "event": "challenge",
                                                 "data": json.dumps({
@@ -234,8 +257,14 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
             json_str = json_str.replace("```json", "").replace("```", "").replace("`", "").strip()
             # 깨진 유니코드 제거 (예: \udc80 등)
             json_str = json_str.encode("utf-8", "ignore").decode("utf-8", "ignore")
-            # 제어 문자 제거
-            json_str = ''.join(c for c in json_str if unicodedata.category(c)[0] != 'C')
+            # 제어 문자 제거 (줄바꿈 제외)
+            json_str = ''.join(c for c in json_str if unicodedata.category(c)[0] != 'C' or c == '\n')
+            # 이스케이프된 문자들을 실제 문자로 변환
+            json_str = json_str.replace('\\\n', '\n')  # 이중 이스케이프된 줄바꿈을 실제 줄바꿈으로 변환
+            json_str = json_str.replace('\\n', '\n')  # 이스케이프된 줄바꿈을 실제 줄바꿈으로 변환
+            # 백슬래시 제거 (줄바꿈이 아닌 경우)
+            json_str = json_str.replace('\\\\', '')  # 이중 백슬래시 제거
+            json_str = json_str.replace('\\', '')  # 단일 백슬래시 제거
             # 중복 JSON 제거 - 첫 번째 완전한 JSON만 추출
             json_objects = []
             brace_count = 0
@@ -262,6 +291,7 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                     json_str = json_str[json_str.find("{"):json_str.rfind("}")+1]
             json_str = re.sub(r',\s*([}\]])', r'\1', json_str)
             json_str = re.sub(r',\s*,', ',', json_str)
+            # 줄바꿈은 보존하면서 다른 공백만 정리
             json_str = re.sub(r'[ \t\r\f\v]+', ' ', json_str)
             logger.info(f"파싱 시도 문자열: {json_str}")
             
@@ -286,7 +316,7 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                             "challenges": []
                         }
                 
-                # 카테고리 정보 추가
+                # 카테고리 정보 추가 (줄바꿈 강제 추가 로직 제거)
                 eng_label = label_mapping[category]
                 if isinstance(parsed_data, dict) and "challenges" in parsed_data:
                     for challenge in parsed_data["challenges"]:
@@ -304,7 +334,45 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                     }
             except json.JSONDecodeError as json_error:
                 logger.error(f"JSON 파싱 실패: {str(json_error)}")
-                # JSON이 아닌 경우 fallback
+                logger.error(f"파싱 시도한 문자열: {json_str}")
+                
+                # 이스케이프된 JSON 문자열 처리 시도
+                try:
+                    # "json{...}" 형태 처리
+                    if json_str.startswith('"json{') and json_str.endswith('}"'):
+                        inner_json = json_str[6:-2]  # "json{" 와 "}" 제거
+                        # 이스케이프된 문자들 처리
+                        inner_json = inner_json.replace('\\"', '"').replace('\\\\', '\\')
+                        parsed_temp = json.loads(inner_json)
+                        if isinstance(parsed_temp, dict):
+                            parsed_data = {
+                                "recommend": parsed_temp.get("recommend", "챌린지를 추천합니다."),
+                                "challenges": parsed_temp.get("challenges", [])
+                            }
+                        else:
+                            raise ValueError("내부 JSON이 딕셔너리가 아님")
+                    else:
+                        raise ValueError("지원하지 않는 JSON 형식")
+                except Exception as inner_error:
+                    logger.error(f"이스케이프된 JSON 처리 실패: {str(inner_error)}")
+                    # 완전한 fallback
+                    parsed_data = {
+                        "recommend": full_response.strip(),
+                        "challenges": []
+                    }
+                if not response_completed:
+                    response_completed = True
+                    yield {
+                        "event": "close",
+                        "data": json.dumps({
+                            "status": 200,
+                            "message": "모든 챌린지 추천 완료",
+                            "data": parsed_data
+                        }, ensure_ascii=False)
+                    }
+            except Exception as parse_error:
+                logger.error(f"파싱 중 예상치 못한 오류: {str(parse_error)}")
+                # 완전한 fallback
                 parsed_data = {
                     "recommend": full_response.strip(),
                     "challenges": []
