@@ -150,30 +150,42 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                                 token_buffer = words[-1] if words else ""
                                 
                                 for word in complete_words:
-                        # 토큰 정제 - 순수 텍스트만 추출
+                                    # 토큰 정제 - 순수 텍스트만 추출
                                     cleaned_text = word
-                        # JSON 관련 문자열 제거
-                        cleaned_text = re.sub(r'"(recommend|challenges|title|description)":\s*("|\')?', '', cleaned_text)
+                                    # JSON 관련 문자열 제거
+                                    cleaned_text = re.sub(r'"(recommend|challenges|title|description)":\s*("|\')?', '', cleaned_text)
                                     # 마크다운 및 JSON 구조 제거
-                        cleaned_text = cleaned_text.replace("```json", "").replace("```", "").strip()
-                        cleaned_text = re.sub(r'["\']', '', cleaned_text)  # 따옴표 제거
-                        cleaned_text = re.sub(r'[\[\]{}]', '', cleaned_text)  # 괄호 제거
-                        cleaned_text = re.sub(r',\s*$', '', cleaned_text)  # 끝의 쉼표 제거
-                        cleaned_text = re.sub(r'[ \t\r\f\v]+', ' ', cleaned_text)  # \n은 제거 안 함
-                        
-                        cleaned_text = cleaned_text.strip()
-                        if cleaned_text and cleaned_text.strip() not in ["", "``", "```"] and not response_completed:
-                            yield {
-                                "event": "challenge",
-                                "data": json.dumps({
-                                    "status": 200,
-                                    "message": "토큰 생성",
-                                    "data": cleaned_text
-                                }, ensure_ascii=False)
-                            }
-                        else:
-                            # 단어가 하나뿐이면 버퍼에 유지
-                            pass
+                                    cleaned_text = cleaned_text.replace("```json", "").replace("```", "").strip()
+                                    cleaned_text = re.sub(r'["\']', '', cleaned_text)  # 따옴표 제거
+                                    cleaned_text = re.sub(r'[\[\]{}$]', '', cleaned_text)  # 괄호와 $ 제거
+                                    cleaned_text = re.sub(r',\s*$', '', cleaned_text)  # 끝의 쉼표 제거
+                                    # 줄바꿈 보존: \n은 그대로 두고 다른 공백 문자만 제거
+                                    cleaned_text = re.sub(r'[ \t\r\f\v]+', ' ', cleaned_text)  # \n 제외 공백만 제거
+                                    # 이스케이프된 문자들을 실제 문자로 변환
+                                    cleaned_text = cleaned_text.replace('\\\\n', '\n')  # 이중 이스케이프된 줄바꿈을 실제 줄바꿈으로 변환
+                                    cleaned_text = cleaned_text.replace('\\n', '\n')  # 이스케이프된 줄바꿈을 실제 줄바꿈으로 변환
+                                    # 백슬래시 제거 (줄바꿈이 아닌 경우)
+                                    cleaned_text = cleaned_text.replace('\\\\', '')  # 이중 백슬래시 제거
+                                    cleaned_text = cleaned_text.replace('\\', '')  # 단일 백슬래시 제거
+                                    # 추가: 연속된 공백을 하나로 정리하되 줄바꿈은 보존
+                                    cleaned_text = re.sub(r' +', ' ', cleaned_text)  # 공백만 정리
+                                    
+                                    cleaned_text = cleaned_text.strip()
+                                    if cleaned_text and cleaned_text.strip() not in ["", "``", "```"] and not response_completed:
+                                        # title 내용이 끝날 때 줄바꿈 추가 (번호.으로 끝나는 경우)
+                                        if re.search(r'\d+\.$', cleaned_text) or cleaned_text.endswith('title') or cleaned_text.endswith('description'):
+                                            cleaned_text += '\n'
+                                        yield {
+                                            "event": "challenge",
+                                            "data": json.dumps({
+                                                "status": 200,
+                                                "message": "토큰 생성",
+                                                "data": cleaned_text #단어 단위 출력
+                                            }, ensure_ascii=False)
+                                        }
+                            else:
+                                # 단어가 하나뿐이면 버퍼에 유지
+                                pass
                     except Exception as e:
                         logger.error(f"[vLLM 토큰 파싱 실패] {str(e)}")
                         continue
@@ -184,7 +196,14 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
             json_str = full_response.strip()
             json_str = json_str.replace("```json", "").replace("```", "").replace("`", "").strip()
             json_str = json_str.encode("utf-8", "ignore").decode("utf-8", "ignore")
-            json_str = ''.join(c for c in json_str if unicodedata.category(c)[0] != 'C')
+            # 제어 문자 제거 (줄바꿈 제외)
+            json_str = ''.join(c for c in json_str if unicodedata.category(c)[0] != 'C' or c == '\n')
+            # 이스케이프된 문자들을 실제 문자로 변환
+            json_str = json_str.replace('\\\n', '\n')  # 이중 이스케이프된 줄바꿈을 실제 줄바꿈으로 변환
+            json_str = json_str.replace('\\n', '\n')  # 이스케이프된 줄바꿈을 실제 줄바꿈으로 변환
+            # 백슬래시 제거 (줄바꿈이 아닌 경우)
+            json_str = json_str.replace('\\\\', '')  # 이중 백슬래시 제거
+            json_str = json_str.replace('\\', '')  # 단일 백슬래시 제거
             # 중복 JSON 제거 - 첫 번째 완전한 JSON만 추출
             json_objects = []
             brace_count = 0
@@ -253,7 +272,45 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                     }
             except json.JSONDecodeError as json_error:
                 logger.error(f"JSON 파싱 실패: {str(json_error)}")
-                # JSON이 아닌 경우 fallback
+                logger.error(f"파싱 시도한 문자열: {json_str}")
+                
+                # 이스케이프된 JSON 문자열 처리 시도
+                try:
+                    # "json{...}" 형태 처리
+                    if json_str.startswith('"json{') and json_str.endswith('}"'):
+                        inner_json = json_str[6:-2]  # "json{" 와 "}" 제거
+                        # 이스케이프된 문자들 처리
+                        inner_json = inner_json.replace('\\"', '"').replace('\\\\', '\\')
+                        parsed_temp = json.loads(inner_json)
+                        if isinstance(parsed_temp, dict):
+                            parsed_data = {
+                                "recommend": parsed_temp.get("recommend", "챌린지를 추천합니다."),
+                                "challenges": parsed_temp.get("challenges", [])
+                            }
+                        else:
+                            raise ValueError("내부 JSON이 딕셔너리가 아님")
+                    else:
+                        raise ValueError("지원하지 않는 JSON 형식")
+                except Exception as inner_error:
+                    logger.error(f"이스케이프된 JSON 처리 실패: {str(inner_error)}")
+                    # 완전한 fallback
+                    parsed_data = {
+                        "recommend": full_response.strip(),
+                        "challenges": []
+                    }
+                if not response_completed:
+                    response_completed = True
+                    yield {
+                        "event": "close",
+                        "data": json.dumps({
+                            "status": 200,
+                            "message": "모든 챌린지 추천 완료",
+                            "data": parsed_data
+                        }, ensure_ascii=False)
+                    }
+            except Exception as parse_error:
+                logger.error(f"파싱 중 예상치 못한 오류: {str(parse_error)}")
+                # 완전한 fallback
                 parsed_data = {
                     "recommend": full_response.strip(),
                     "challenges": []
@@ -293,8 +350,6 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                     "data": None
                 }, ensure_ascii=False)
             }
-    finally:
-        logger.info("메모리 정리 완료")
 
 # 대화 상태를 관리하기 위한 타입 정의
 class ChatState(TypedDict):
