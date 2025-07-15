@@ -18,3 +18,25 @@ model_inference_duration_seconds = Histogram(
 # 현재 서비스 중인 모델 버전 (Gauge)
 model_version = Gauge('ai_current_model_version', 'Current AI model version')
 model_version.set(2.1) # 실제 사용 중인 AI 모델 버전으로 설정
+
+api_requests_total = Counter(
+    'api_requests_total', 'Total number of API requests',
+    ['endpoint', 'method', 'status_code']
+)
+
+from fastapi import Request
+import time
+
+async def metrics_middleware(request: Request, call_next):
+    start_time = time.time()
+    response = await call_next(request)
+    duration = time.time() - start_time
+
+    model_inference_duration_seconds.observe(duration)
+    # 요청 수 카운트
+    api_requests_total.labels(
+        endpoint=request.url.path,
+        method=request.method,
+        status_code=response.status_code
+    ).inc()
+    return response
