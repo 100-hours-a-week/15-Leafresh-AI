@@ -6,7 +6,7 @@ Content-Type: application/json
 {
   "verificationId": 222,
   "type": "GROUP",
-  "imageUrl": "https://leafresh-prod-images.s3.ap-northeast-2.amazonaws.com/ex1.png",
+  "imageUrl": "https://leafresh-images.s3.ap-northeast-2.amazonaws.com/ex1.png"
   "memberId": 112,
   "challengeId": 1,
   "date": "2025-05-24",
