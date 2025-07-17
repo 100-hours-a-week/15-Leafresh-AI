@@ -1,4 +1,4 @@
-from model.verify.LLM_verify_model import ImageVerifyModel  # LLaVA 기반 모델
+from Server1.model.verify.GCP.LLM_verify_model import ImageVerifyModel  # LLaVA 기반 모델
 from verify_test_case import test_cases
 import pandas as pd
 from tabulate import tabulate

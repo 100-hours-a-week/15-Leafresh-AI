@@ -1,7 +1,7 @@
 import boto3, json, os, time
 from dotenv import load_dotenv
 
-from model.verify.LLM_verify_model import ImageVerifyModel
+from model.verify.verify_model_aws import ImageVerifyModel
 from model.verify.publisher_ai_to_be_aws import publish_result
 
 
@@ -14,7 +14,7 @@ sqs = boto3.client("sqs",
                    region_name=os.getenv("AWS_DEFAULT_REGION_SERVER1"))
 
 verify_queue_url = os.getenv("AWS_SQS_INPUT_QUEUE_URL")
-bucket_name = os.getenv("BUCKET_NAME_DEV")
+bucket_name = os.getenv("AWS_S3_BUCKET_NAME")
 
 verifier = ImageVerifyModel()
 

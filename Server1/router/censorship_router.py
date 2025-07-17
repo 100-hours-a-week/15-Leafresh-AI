@@ -6,7 +6,7 @@ from starlette.status import HTTP_422_UNPROCESSABLE_ENTITY
 from pydantic import BaseModel, Field
 from typing import List, Optional
 
-from model.censor.LLM_censorship_model import CensorshipModel
+# from model.censor.LLM_censorship_model import CensorshipModel
 from model.censor.censorship_hyperclovax_model import HyperClovaxModel
 
 import asyncio
@@ -34,7 +34,7 @@ def warmup_task():
     return "[Warmup] Model loaded"
 
 # CPU 코어 2개 사용 
-executor = ProcessPoolExecutor(max_workers=1, initializer=init_model) # 현재 임의로 변경 
+executor = ProcessPoolExecutor(max_workers=2, initializer=init_model) 
 
 async def warmup_workers():
     loop = asyncio.get_event_loop()
