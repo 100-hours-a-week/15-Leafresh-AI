@@ -1,4 +1,4 @@
-from model.verify.LLM_verify_model import ImageVerifyModel
+from Server1.model.verify.GCP.LLM_verify_model import ImageVerifyModel
 from verify_test_case import test_cases
 import pandas as pd
 from tabulate import tabulate

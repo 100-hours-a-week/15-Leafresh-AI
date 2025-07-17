@@ -1,6 +1,6 @@
 from google.cloud import pubsub_v1
-from model.verify.LLM_verify_model import ImageVerifyModel
-from model.verify.publisher_ai_to_be import publish_result
+from Server1.model.verify.GCP.LLM_verify_model import ImageVerifyModel
+from Server1.model.verify.GCP.publisher_ai_to_be import publish_result
 import json
 import requests
 
