@@ -1,5 +1,5 @@
 # chatbot_router.py
-from ..model.chatbot.LLM_chatbot_base_info_model import base_prompt, get_llm_response as get_base_info_llm_response, base_parser
+from ..model.chatbot.LLM_chatbot_base_info_model import base_prompt, get_llm_response as get_base_info_llm_response, base_parser, escaped_format
 from ..model.chatbot.LLM_chatbot_free_text_model import process_chat, clear_conversation, conversation_states, custom_prompt, get_llm_response as get_free_text_llm_response, retriever
 from ..model.chatbot.chatbot_constants import label_mapping, ENV_KEYWORDS, BAD_WORDS
 from fastapi import APIRouter, Query, HTTPException
@@ -89,7 +89,8 @@ async def select_category(
     prompt = base_prompt.format(
         location=location,
         workType=workType,
-        category=category
+        category=category,
+        escaped_format=escaped_format
     )
 
     # SSE 응답 생성
@@ -257,7 +258,8 @@ async def freetext_rag(
             context=context,  # RAG 활성화
             query=message,
             messages=messages_history,
-            category=current_category
+            category=current_category,
+            escaped_format=escaped_format
         )
 
         # LLM 응답 스트리밍

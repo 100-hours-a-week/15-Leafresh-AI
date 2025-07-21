@@ -50,21 +50,31 @@ base_parser = StructuredOutputParser.from_response_schemas(base_response_schemas
 # base-info_prompt 정의
 escaped_format = base_parser.get_format_instructions().replace("{", "{{").replace("}", "}}")
 base_prompt = PromptTemplate(
-    input_variables=["location", "workType", "category"],
-    template=f"""당신은 환경 보호 챌린지를 추천하는 AI 어시스턴트입니다.
-{{location}}의 환경에 있는 {{workType}} 사용자가 {{category}}를 실천할 때,
-절대적으로 환경에 도움이 되는 챌린지를 아래 JSON 형식으로 3가지 추천해주세요.
+    input_variables=["location", "workType", "category", "escaped_format"],
+    template="""
+너는 챌린지 추천 챗봇이야. 사용자가 선택한 '위치, 직업, 카테고리'에 맞춰 구체적인 친환경 챌린지 3가지를 JSON 형식으로 추천해줘.
 
-주의사항:
-1. 모든 속성 이름과 문자열 값은 반드시 큰따옴표(")로 둘러싸야 합니다.
-2. recommend 필드에는 {{category}} 관련 추천 문구를 포함해야 합니다.
-3. 각 title 내용은 번호를 붙이세요.
-4. description은 한 문장으로만 작성하세요. (50자 이내)
+아래 지침을 반드시 지켜야 해:
+- 답변은 반드시 하나의 올바른 JSON 객체로만 출력해야 해.
+- JSON은 반드시 최상위에 "recommend"(문자열)와 "challenges"(객체 배열) 두 개의 필드만 가져야 해.
+- "recommend" 안에 JSON이나 다른 구조를 넣지 마.
+- JSON 객체 외에 어떤 텍스트, 설명, 마크다운, 코드블록도 출력하지 마.
+- "challenges" 배열의 각 항목은 반드시 "title"과 "description" 필드를 가져야 하고, 둘 다 한글로 작성해야 해.
+- 모든 출력(recommend, title, description)은 반드시 한글로만 작성해야 해. 영어, 숫자, 특수문자, 이모지 등은 사용하지 마.
+- "challenges"를 문자열로 출력하거나 "recommend" 안에 중첩하지 마.
 
-JSON 포맷:
+
+예시 출력:
 {escaped_format}
 
-반드시 위 JSON 형식 그대로 반드시 한글로 한번만 출력하세요.
+지침:
+- 아래 위치, 직업, 카테고리 정보를 참고해.
+- 3개의 구체적인 친환경 챌린지를 추천해.
+- 반드시 위 예시처럼 JSON 객체만, 한글로만 출력해.
+
+위치: {location}
+직업: {workType}
+카테고리: {category}
 """
 )
 
@@ -83,8 +93,10 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
     logger.info(f"[vLLM 호출] 프롬프트 길이: {len(prompt)}")
     url = "http://localhost:8800/v1/chat/completions"
     payload = {
-        "model": "/home/ubuntu/mistral/models--mistralai--Mistral-7B-Instruct-v0.3/snapshots/e0bc86c23ce5aae1db576c8cca6f06f1f73af2db",
-        "messages": [{"role": "user", "content": prompt}],
+        "model": "/home/ubuntu/mistral_finetuned_v1/models--maclee123--leafresh_merged_v1/snapshots/0fe572bd6dccfb84946e37fb253ccea74dff2599",
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
         "stream": True,
         "max_tokens": 2048
     }
@@ -231,6 +243,9 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                                         cleaned_text = re.sub(r' +', ' ', cleaned_text)  # 공백만 정리
                                         
                                         cleaned_text = cleaned_text.strip()
+                                        # 콜론만 단독, 콜론+공백류, 콜론+줄바꿈 등도 필터링
+                                        if re.fullmatch(r":\s*", cleaned_text) or cleaned_text in ["json", "recommend", "challenges", "title", "description"]:
+                                            continue
                                         if cleaned_text and cleaned_text.strip() not in ["", "``", "```"] and not response_completed:
                                             # title 내용이 끝날 때 줄바꿈 추가 (번호.으로 끝나는 경우)
                                             if re.search(r'\d+\.$', cleaned_text) or cleaned_text.endswith('title') or cleaned_text.endswith('description'):
