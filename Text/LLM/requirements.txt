@@ -160,3 +160,7 @@ rq==2.4.0
 # === vLLM ===
 # vLLM은 torch 설치 후 별도 설치 필요
 # vllm
+
+#191 === SQS ===
+boto3
+

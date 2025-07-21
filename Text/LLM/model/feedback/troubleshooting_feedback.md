@@ -548,7 +548,84 @@ rq worker feedback
 - **GCP Pub/Sub를 도입하여 피드백 요청/결과 메시지의 비동기 처리를 구현**
 - Pub/Sub 도입 이유:
     1. 서비스가 멀티 서버/멀티 클라우드 환경으로 확장됨에 따라, Redis 큐만으로는 장애 시 메시지 유실 위험, 영속성·재전송·DLQ(Dead Letter Queue) 등 신뢰성 기능이 부족
-    2. GCP Pub/Sub는 메시지 영속성, 자동 재전송, 구독자별 ACK/NACK, DLQ(Dead Letter Queue), 클라우드 네이티브 연동 등에서 강점
+    2. GCP Pub/Sub는 메시지 영속성, 자동 재전송, 구독자별 ACK/NACK, DLQ(Dead Letter Queue), 클라우드 네이티브 연동에서 강점
     3. BE(백엔드)와 AI 워커가 서로 다른 프로젝트/환경에 분산되어 있어, Pub/Sub를 통한 메시지 브로커 구조가 더 적합
+
+# 2025-07-21
+
+## 주요 변경사항: GCP Pub/Sub → AWS SQS 기반 비동기 피드백 처리 전환
+
+### 1. 아키텍처 전환 배경
+- 기존에는 GCP Pub/Sub를 사용하여 피드백 생성 요청/결과 메시지의 비동기 처리를 구현
+- 서비스 확장, AWS 인프라 통합, 운영 편의성, 비용 및 신뢰성 이슈로 인해 **AWS SQS(FIFO 큐)** 기반 구조로 전환
+- SQS는 메시지 영속성, Dead Letter Queue(DLQ), AWS IAM 기반 권한 관리, 멀티 클라우드 연동에 강점
+
+### 2. 코드 구조 변경
+- FastAPI 서버에서 피드백 생성 요청을 받으면, SQS(요청 큐)에 메시지 발행
+- SQS 워커(`sqs_feedback_worker.py`)가 큐에서 메시지를 폴링하여 피드백 생성 및 결과 처리
+- 피드백 결과도 별도의 SQS(결과 큐)에 발행 가능
+
+#### 주요 파일
+- `router/feedback_router.py`: SQS로 피드백 요청 메시지 발행
+- `model/feedback/sqs_feedback_worker.py`: SQS에서 메시지 폴링 및 피드백 생성/결과 발행
+- `model/feedback/publisher_ai_to_be_aws.py`, `publisher_be_to_ai_aws.py`: SQS 발행 유틸
+
+### 3. 환경 변수 및 인증 정보
+- `.env` 파일에 아래 항목 추가/수정
+  ```env
+  AWS_ACCESS_KEY_ID_SERVER2=...
+  AWS_SECRET_ACCESS_KEY_SERVER2=...
+  AWS_DEFAULT_REGION_SERVER2=ap-northeast-2
+  AWS_SQS_FEEDBACK_QUEUE_URL=https://sqs.ap-northeast-2.amazonaws.com/123456789012/leafresh-sqs-feedback.fifo
+  AWS_SQS_FEEDBACK_RESULT_QUEUE_URL=https://sqs.ap-northeast-2.amazonaws.com/123456789012/leafresh-sqs-feedback-result.fifo
+  ```
+- FastAPI/워커 모두에서 `boto3.client()` 생성 시 인증 정보를 명시적으로 전달해야 함
+
+### 4. FIFO 큐 사용 시 주의사항
+- SQS FIFO 큐(`.fifo`)는 메시지 발행 시 **반드시 `MessageGroupId` 파라미터**를 포함해야 함
+- 예시:
+  ```python
+  response = sqs.send_message(
+      QueueUrl=queue_url,
+      MessageBody=message_json,
+      MessageGroupId=str(data.get("memberId", "feedback"))  # 고정값 또는 유니크 값
+  )
+  ```
+- `MessageGroupId`가 없으면 `MissingParameter` 에러 발생
+
+### 5. 실전 적용 팁
+- `.env` 파일 수정 후 반드시 서버/워커 재시작
+- 환경 변수명, 오타, 공백, 인코딩 문제 주의
+- 인증 정보는 FastAPI/워커 모두에서 명시적으로 전달(암묵적 로딩에 의존하지 말 것)
+- SQS 큐 URL, 권한, 정책, DLQ 설정 등 AWS 콘솔에서 꼼꼼히 점검
+- 워커/라우터 모두에서 환경 변수 print/log로 실제 값 확인 습관화
+
+### 6. 테스트 및 운영
+- 워커 실행: `PYTHONPATH=$(pwd) python3 model/feedback/sqs_feedback_worker.py`
+- 피드백 요청: `/ai/feedback` 엔드포인트로 POST
+- 워커 로그에서 메시지 수신/처리 확인
+- AWS 콘솔에서 큐 메시지 수, DLQ, 권한 등 모니터링
+
+### 7. 마이그레이션/운영 경험
+- 환경 변수/인증 정보 누락, MessageGroupId 미포함, 서버 재시작 누락 등으로 인한 장애 다수 발생
+- 문제 발생 시 print/log로 환경 변수, 인증 정보, SQS 파라미터 직접 확인이 가장 빠른 해결책
+- GCP Pub/Sub 대비 AWS SQS는 IAM 기반 권한 관리, DLQ, FIFO 메시지 순서 보장 등에서 실무적 장점
+
+---
+
+### 8. FastAPI 서버(main.py) 환경 변수 로딩 위치 변경 및 서버 실행 주의사항
+- 기존에는 main.py에서 `load_dotenv()` 호출이 라우터 import 이후에 위치해 있어, 라우터에서 boto3 등으로 AWS 인증 정보를 읽지 못하는 문제가 발생
+- **2025-07-21: `load_dotenv()`를 main.py의 최상단(모든 import문 위)으로 이동**
+    - 모든 라우터/모듈 import 전에 환경 변수가 적용되어, 인증 정보 누락 문제 해결
+    - 예시:
+      ```python
+      from dotenv import load_dotenv
+      load_dotenv()
+      from fastapi import FastAPI
+      # ... 이하 생략 ...
+      ```
+- FastAPI 서버를 여러 번 실행하거나, uvicorn/main.py에서 중복 실행 시 **포트(8000) 충돌**이 발생할 수 있으니, 서버 실행 전 반드시 기존 프로세스를 종료하고 한 번만 실행할 것
+- 서버 실행 후 `lsof -i :8000` 등으로 포트 중복 여부 확인 권장
+- 환경 변수/인증 정보 변경 시 반드시 서버 재시작 필요
 
 
