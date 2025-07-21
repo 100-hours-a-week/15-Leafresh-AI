@@ -8,6 +8,7 @@ import os
 import uvicorn
 import threading
 
+load_dotenv()
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(project_root)
 
@@ -37,8 +38,6 @@ if __name__ == "__main__":
     # 9104 포트에서 exporter 실행
     start_http_server(9104)
     uvicorn.run("main:app", host="0.0.0.0", port=8000)
-
-load_dotenv()
 
 # app 초기화
 app = FastAPI()
