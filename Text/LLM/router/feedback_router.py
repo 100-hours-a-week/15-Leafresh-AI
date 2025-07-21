@@ -1,3 +1,4 @@
+import boto3
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
@@ -9,7 +10,6 @@ import json
 import logging
 from dotenv import load_dotenv
 import os
-from google.cloud import pubsub_v1
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
@@ -21,12 +21,20 @@ os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv("GOOGLE_APPLICATION_CRE
 
 router = APIRouter()
 
-# GCP Pub/Sub 설정
-project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "leafresh-dev2")
-topic_id = os.getenv("PUBSUB_TOPIC_FEEDBACK_DEV")  # leafresh-feedback-topic
+# GCP Pub/Sub 설정 제거, SQS 설정 추가
+sqs = boto3.client(
+    'sqs',
+    aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID_SERVER2'),
+    aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY_SERVER2'),
+    region_name=os.getenv('AWS_DEFAULT_REGION_SERVER2', 'ap-northeast-2')
+)
+queue_url = os.getenv('AWS_SQS_FEEDBACK_QUEUE_URL')
 
-topic_path = f"projects/{project_id}/topics/{topic_id}"
-publisher = pubsub_v1.PublisherClient()
+# GCP Pub/Sub 설정 제거
+# project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "leafresh-dev2")
+# topic_id = os.getenv("PUBSUB_TOPIC_FEEDBACK_DEV")  # leafresh-feedback-topic
+# topic_path = f"projects/{project_id}/topics/{topic_id}"
+# publisher = pubsub_v1.PublisherClient()
 
 # API 명세에 따른 입력 데이터를 위한 Pydantic 모델 정의
 class Submission(BaseModel):
@@ -89,12 +97,14 @@ async def create_feedback(request: FeedbackRequest):
         request_data["timestamp"] = datetime.now().isoformat()
         request_data["requestId"] = f"req_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
         
-        # GCP Pub/Sub 토픽으로 메시지 발행
+        # SQS로 메시지 발행
         message_json = json.dumps(request_data, ensure_ascii=False, default=str)
-        message_bytes = message_json.encode("utf-8")
-        
-        future = publisher.publish(topic_path, data=message_bytes)
-        message_id = future.result()
+        response = sqs.send_message(
+            QueueUrl=queue_url,
+            MessageBody=message_json,
+            MessageGroupId="MessageId"  # 또는 memberId 등 유니크한 값
+        )
+        message_id = response.get('MessageId')
         
         logger.info(f"[PUBLISH] 피드백 요청 발행 완료 (message ID: {message_id})")
         logger.info(f"[PUBLISH] Request Data: {json.dumps(request_data, ensure_ascii=False, default=str)}")
@@ -104,7 +114,7 @@ async def create_feedback(request: FeedbackRequest):
             status_code=202,
             content={
                 "status": 202,
-                "message": "피드백 요청이 정상적으로 접수되었습니다. 결과는 추후 Pub/Sub으로 전송됩니다.",
+                "message": "피드백 요청이 정상적으로 접수되었습니다. 결과는 추후 SQS로 전송됩니다.",
                 "data": {
                     "requestId": request_data["requestId"],
                     "messageId": message_id
