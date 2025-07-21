@@ -56,7 +56,7 @@ retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
 
 # RAG 방식 챌린지 추천을 위한 Output Parser 정의
 rag_response_schemas = [
-    ResponseSchema(name="recommend", description="추천 텍스트를 한글로 한 문장으로 출력해주고 실제 줄바꿈(엔터)으로 구분해 주세요.(예: '이런 챌린지를 추천합니다.')"),
+    ResponseSchema(name="recommend", description="추천 텍스트를 한글로 한 문장으로 출력해주세요.(예: '이런 챌린지를 추천합니다.')"),
     ResponseSchema(name="challenges", description="추천 챌린지 리스트, 각 항목은 title, description 포함, description은 한글로 한 문장으로 요약해주세요.")
 ]
 
@@ -68,30 +68,36 @@ escaped_format = rag_parser.get_format_instructions().replace("{", "{{").replace
 
 # RAG 방식 챌린지 추천을 위한 PromptTemplate 정의
 custom_prompt = PromptTemplate(
-    input_variables=["context", "query", "messages", "category"],
-    template=f"""당신은 환경 보호 챌린지를 추천하는 AI 어시스턴트입니다.
-다음 문서와 이전 대화 기록을 참고하여 사용자에게 적절한 친환경 챌린지를 3개 추천해주세요.
+    input_variables=["context", "query", "messages", "category", "escaped_format"],
+    template="""
+너는 사용자와 자유롭게 대화하며 대화의 맥락에 맞는 친환경 챌린지 3가지를 JSON 형식으로 추천하는 챗봇이야.
 
-이전 대화 기록:
-{{messages}}
+아래 지침을 반드시 지켜야 해:
+- 답변은 반드시 하나의 올바른 JSON 객체로만 출력해야 해.
+- JSON은 반드시 최상위에 "recommend"(문자열)와 "challenges"(객체 배열) 두 개의 필드만 가져야 해.
+- "recommend" 안에 JSON이나 다른 구조를 넣지 마.
+- JSON 객체 외에 어떤 텍스트, 설명, 마크다운, 코드블록도 출력하지 마.
+- "challenges" 배열의 각 항목은 반드시 "title"과 "description" 필드를 가져야 하고, 둘 다 한글로 작성해야 해.
+- 모든 출력(recommend, title, description)은 반드시 한글로만 작성해야 해. 영어, 숫자, 특수문자, 이모지 등은 사용하지 마.
+- "challenges"를 문자열로 출력하거나 "recommend" 안에 중첩하지 마.
+- 반드시 JSON 객체만 출력해. 그 외에는 아무것도 출력하지 마.
 
-문서:
-{{context}}
-
-현재 요청:
-{{query}}
-
-주의사항:
-1. 모든 속성 이름과 문자열 값은 반드시 큰따옴표(")로 둘러싸야 합니다.
-2. recommend 필드에는 {{category}} 관련 추천 문구를 포함해야 합니다.
-3. 각 title 내용은 번호를 붙이세요.
-4. description은 반드시 한 문장으로만 작성하세요. (50자 이내)
-5. 전체 응답을 간결하게 유지하세요.
-
-출력 형식 예시:
+예시 출력:
 {escaped_format}
 
-반드시 위 JSON 형식 그대로 반드시 한글로 한번만 출력하세요.
+지침:
+- 아래 컨텍스트와 이전 대화, 그리고 사용자의 질문을 참고해.
+- 3개의 구체적인 친환경 챌린지를 추천해.
+- 반드시 위 예시처럼 JSON 객체만, 한글로만 출력해.
+
+컨텍스트:
+{context}
+
+이전 대화:
+{messages}
+
+현재 질문:
+{query}
 """
 )
 
@@ -100,7 +106,7 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
     logger.info(f"[vLLM 호출] 프롬프트 길이: {len(prompt)}")
     url = "http://localhost:8800/v1/chat/completions"
     payload = {
-        "model": "/home/ubuntu/mistral/models--mistralai--Mistral-7B-Instruct-v0.3/snapshots/e0bc86c23ce5aae1db576c8cca6f06f1f73af2db",
+        "model": "/home/ubuntu/mistral_finetuned_v1/models--maclee123--leafresh_merged_v1/snapshots/0fe572bd6dccfb84946e37fb253ccea74dff2599",
         "messages": [{"role": "user", "content": prompt}],
         "stream": True,
         "max_tokens":2048
@@ -115,81 +121,162 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
         with httpx.stream("POST", url, json=payload, timeout=60.0) as response:
             full_response = ""
             for line in response.iter_lines():
-                if line.startswith(b"data: "):
-                    try:
-                        json_data = json.loads(line[len(b"data: "):])
-                        delta = json_data["choices"][0]["delta"]
-                        token = delta.get("content", "")
-                        if token.strip() in ["```", "`", ""]:
-                            continue  # 이런 토큰은 누적하지 않음
-                        full_response += token
-                        token_buffer += token
-                        logger.info(f"토큰 수신: {token[:20]}...")
+                if isinstance(line, bytes):
+                    if line.startswith(b"data: "):
+                        try:
+                            json_data = json.loads(line[len(b"data: "):])
+                            delta = json_data["choices"][0]["delta"]
+                            token = delta.get("content", "")
+                            if token.strip() in ["```", "`", ""]:
+                                continue  # 이런 토큰은 누적하지 않음
+                            full_response += token
+                            token_buffer += token
+                            logger.info(f"토큰 수신: {token[:20]}...")
 
-                        # 토큰 버퍼에서 단어 단위로 분리하여 스트리밍
-                        if any(delimiter in token_buffer for delimiter in word_delimiters):
-                            # 단어 경계를 찾아서 분리
-                            words = []
-                            current_word = ""
-                            for char in token_buffer:
-                                if char in word_delimiters:
-                                    if current_word:
-                                        words.append(current_word)
-                                        current_word = ""
-                                    words.append(char)
-                                else:
-                                    current_word += char
-                            
-                            if current_word:
-                                words.append(current_word)
-                            
-                            # 완성된 단어들만 스트리밍하고, 마지막 불완전한 단어는 버퍼에 유지
-                            if len(words) > 1:
-                                # 마지막 단어가 불완전할 수 있으므로 제외
-                                complete_words = words[:-1]
-                                token_buffer = words[-1] if words else ""
+                            # 토큰 버퍼에서 단어 단위로 분리하여 스트리밍
+                            if any(delimiter in token_buffer for delimiter in word_delimiters):
+                                # 단어 경계를 찾아서 분리
+                                words = []
+                                current_word = ""
+                                for char in token_buffer:
+                                    if char in word_delimiters:
+                                        if current_word:
+                                            words.append(current_word)
+                                            current_word = ""
+                                        words.append(char)
+                                    else:
+                                        current_word += char
                                 
-                                for word in complete_words:
-                                    # 토큰 정제 - 순수 텍스트만 추출
-                                    cleaned_text = word
-                                    # JSON 관련 문자열 제거
-                                    cleaned_text = re.sub(r'"(recommend|challenges|title|description)":\s*("|\')?', '', cleaned_text)
-                                    # 마크다운 및 JSON 구조 제거
-                                    cleaned_text = cleaned_text.replace("```json", "").replace("```", "").strip()
-                                    cleaned_text = re.sub(r'["\']', '', cleaned_text)  # 따옴표 제거
-                                    cleaned_text = re.sub(r'[\[\]{}$]', '', cleaned_text)  # 괄호와 $ 제거
-                                    cleaned_text = re.sub(r',\s*$', '', cleaned_text)  # 끝의 쉼표 제거
-                                    # 줄바꿈 보존: \n은 그대로 두고 다른 공백 문자만 제거
-                                    cleaned_text = re.sub(r'[ \t\r\f\v]+', ' ', cleaned_text)  # \n 제외 공백만 제거
-                                    # 이스케이프된 문자들을 실제 문자로 변환
-                                    cleaned_text = cleaned_text.replace('\\\\n', '\n')  # 이중 이스케이프된 줄바꿈을 실제 줄바꿈으로 변환
-                                    cleaned_text = cleaned_text.replace('\\n', '\n')  # 이스케이프된 줄바꿈을 실제 줄바꿈으로 변환
-                                    # 백슬래시 제거 (줄바꿈이 아닌 경우)
-                                    cleaned_text = cleaned_text.replace('\\\\', '')  # 이중 백슬래시 제거
-                                    cleaned_text = cleaned_text.replace('\\', '')  # 단일 백슬래시 제거
-                                    # 추가: 연속된 공백을 하나로 정리하되 줄바꿈은 보존
-                                    cleaned_text = re.sub(r' +', ' ', cleaned_text)  # 공백만 정리
+                                if current_word:
+                                    words.append(current_word)
+                                
+                                # 완성된 단어들만 스트리밍하고, 마지막 불완전한 단어는 버퍼에 유지
+                                if len(words) > 1:
+                                    # 마지막 단어가 불완전할 수 있으므로 제외
+                                    complete_words = words[:-1]
+                                    token_buffer = words[-1] if words else ""
                                     
-                                    cleaned_text = cleaned_text.strip()
-                                    if cleaned_text and cleaned_text.strip() not in ["", "``", "```"] and not response_completed:
-                                        # title 내용이 끝날 때 줄바꿈 추가 (번호.으로 끝나는 경우)
-                                        if re.search(r'\d+\.$', cleaned_text) or cleaned_text.endswith('title') or cleaned_text.endswith('description'):
-                                            cleaned_text += '\n'
-                                        yield {
-                                            "event": "challenge",
-                                            "data": json.dumps({
-                                                "status": 200,
-                                                "message": "토큰 생성",
-                                                "data": cleaned_text #단어 단위 출력
-                                            }, ensure_ascii=False)
-                                        }
-                            else:
-                                # 단어가 하나뿐이면 버퍼에 유지
-                                pass
-                    except Exception as e:
-                        logger.error(f"[vLLM 토큰 파싱 실패] {str(e)}")
-                        continue
+                                    for word in complete_words:
+                                        # 토큰 정제 - 순수 텍스트만 추출
+                                        cleaned_text = word
+                                        # JSON 관련 문자열 제거
+                                        cleaned_text = re.sub(r'"(recommend|challenges|title|description)":\s*("|\')?', '', cleaned_text)
+                                        # 마크다운 및 JSON 구조 제거
+                                        cleaned_text = cleaned_text.replace("```json", "").replace("```", "").strip()
+                                        cleaned_text = re.sub(r'["\']', '', cleaned_text)  # 따옴표 제거
+                                        cleaned_text = re.sub(r'[\[\]{}$]', '', cleaned_text)  # 괄호와 $ 제거
+                                        cleaned_text = re.sub(r',\s*$', '', cleaned_text)  # 끝의 쉼표 제거
+                                        # 줄바꿈 보존: \n은 그대로 두고 다른 공백 문자만 제거
+                                        cleaned_text = re.sub(r'[ \t\r\f\v]+', ' ', cleaned_text)  # \n 제외 공백만 제거
+                                        # 이스케이프된 문자들을 실제 문자로 변환
+                                        cleaned_text = cleaned_text.replace('\\\\n', '\n')  # 이중 이스케이프된 줄바꿈을 실제 줄바꿈으로 변환
+                                        cleaned_text = cleaned_text.replace('\\n', '\n')  # 이스케이프된 줄바꿈을 실제 줄바꿈으로 변환
+                                        # 백슬래시 제거 (줄바꿈이 아닌 경우)
+                                        cleaned_text = cleaned_text.replace('\\\\', '')  # 이중 백슬래시 제거
+                                        cleaned_text = cleaned_text.replace('\\', '')  # 단일 백슬래시 제거
+                                        # 추가: 연속된 공백을 하나로 정리하되 줄바꿈은 보존
+                                        cleaned_text = re.sub(r' +', ' ', cleaned_text)  # 공백만 정리
+                                        
+                                        cleaned_text = cleaned_text.strip()
+                                        # base-info와 동일하게 불필요한 토큰 필터링
+                                        if re.fullmatch(r":\s*", cleaned_text) or cleaned_text in ["json", "recommend", "challenges", "title", "description"]:
+                                            continue
+                                        if cleaned_text and cleaned_text.strip() not in ["", "``", "```"] and not response_completed:
+                                            # title 내용이 끝날 때 줄바꿈 추가 (번호.으로 끝나는 경우)
+                                            if re.search(r'\d+\.$', cleaned_text) or cleaned_text.endswith('title') or cleaned_text.endswith('description'):
+                                                cleaned_text += '\n'
+                                            yield {
+                                                "event": "challenge",
+                                                "data": json.dumps({
+                                                    "status": 200,
+                                                    "message": "토큰 생성",
+                                                    "data": cleaned_text #단어 단위 출력
+                                                }, ensure_ascii=False)
+                                            }
+                                else:
+                                    # 단어가 하나뿐이면 버퍼에 유지
+                                    pass
+                        except Exception as e:
+                            logger.error(f"[vLLM 토큰 파싱 실패] {str(e)}")
+                            continue
+                elif isinstance(line, str):
+                    if line.startswith("data: "):
+                        try:
+                            json_data = json.loads(line[len("data: "):])
+                            delta = json_data["choices"][0]["delta"]
+                            token = delta.get("content", "")
+                            if token.strip() in ["```", "`", ""]:
+                                continue  # 이런 토큰은 누적하지 않음
+                            full_response += token
+                            token_buffer += token
+                            logger.info(f"토큰 수신: {token[:20]}...")
 
+                            # 토큰 버퍼에서 단어 단위로 분리하여 스트리밍
+                            if any(delimiter in token_buffer for delimiter in word_delimiters):
+                                # 단어 경계를 찾아서 분리
+                                words = []
+                                current_word = ""
+                                for char in token_buffer:
+                                    if char in word_delimiters:
+                                        if current_word:
+                                            words.append(current_word)
+                                            current_word = ""
+                                        words.append(char)
+                                    else:
+                                        current_word += char
+                                
+                                if current_word:
+                                    words.append(current_word)
+                                
+                                # 완성된 단어들만 스트리밍하고, 마지막 불완전한 단어는 버퍼에 유지
+                                if len(words) > 1:
+                                    # 마지막 단어가 불완전할 수 있으므로 제외
+                                    complete_words = words[:-1]
+                                    token_buffer = words[-1] if words else ""
+                                    
+                                    for word in complete_words:
+                                        # 토큰 정제 - 순수 텍스트만 추출
+                                        cleaned_text = word
+                                        # JSON 관련 문자열 제거
+                                        cleaned_text = re.sub(r'"(recommend|challenges|title|description)":\s*("|\')?', '', cleaned_text)
+                                        # 마크다운 및 JSON 구조 제거
+                                        cleaned_text = cleaned_text.replace("```json", "").replace("```", "").strip()
+                                        cleaned_text = re.sub(r'["\']', '', cleaned_text)  # 따옴표 제거
+                                        cleaned_text = re.sub(r'[\[\]{}$]', '', cleaned_text)  # 괄호와 $ 제거
+                                        cleaned_text = re.sub(r',\s*$', '', cleaned_text)  # 끝의 쉼표 제거
+                                        # 줄바꿈 보존: \n은 그대로 두고 다른 공백 문자만 제거
+                                        cleaned_text = re.sub(r'[ \t\r\f\v]+', ' ', cleaned_text)  # \n 제외 공백만 제거
+                                        # 이스케이프된 문자들을 실제 문자로 변환
+                                        cleaned_text = cleaned_text.replace('\\\\n', '\n')  # 이중 이스케이프된 줄바꿈을 실제 줄바꿈으로 변환
+                                        cleaned_text = cleaned_text.replace('\\n', '\n')  # 이스케이프된 줄바꿈을 실제 줄바꿈으로 변환
+                                        # 백슬래시 제거 (줄바꿈이 아닌 경우)
+                                        cleaned_text = cleaned_text.replace('\\\\', '')  # 이중 백슬래시 제거
+                                        cleaned_text = cleaned_text.replace('\\', '')  # 단일 백슬래시 제거
+                                        # 추가: 연속된 공백을 하나로 정리하되 줄바꿈은 보존
+                                        cleaned_text = re.sub(r' +', ' ', cleaned_text)  # 공백만 정리
+                                        
+                                        cleaned_text = cleaned_text.strip()
+                                        # base-info와 동일하게 불필요한 토큰 필터링
+                                        if re.fullmatch(r":\s*", cleaned_text) or cleaned_text in ["json", "recommend", "challenges", "title", "description"]:
+                                            continue
+                                        if cleaned_text and cleaned_text.strip() not in ["", "``", "```"] and not response_completed:
+                                            # title 내용이 끝날 때 줄바꿈 추가 (번호.으로 끝나는 경우)
+                                            if re.search(r'\d+\.$', cleaned_text) or cleaned_text.endswith('title') or cleaned_text.endswith('description'):
+                                                cleaned_text += '\n'
+                                            yield {
+                                                "event": "challenge",
+                                                "data": json.dumps({
+                                                    "status": 200,
+                                                    "message": "토큰 생성",
+                                                    "data": cleaned_text #단어 단위 출력
+                                                }, ensure_ascii=False)
+                                            }
+                                else:
+                                    # 단어가 하나뿐이면 버퍼에 유지
+                                    pass
+                        except Exception as e:
+                            logger.error(f"[vLLM 토큰 파싱 실패] {str(e)}")
+                            continue
         # 최종 JSON 파싱 시도
         try:
             logger.info("스트리밍 완료. 전체 응답 파싱 시작.")
@@ -481,7 +568,8 @@ def generate_response(state: ChatState) -> ChatState:
             context=state["context"],
             query=state["current_query"],
             messages=messages,
-            category=category
+            category=category,
+            escaped_format=escaped_format  # 이 줄 추가
         )
         
         # LLM 응답 생성 (스트리밍 방식 유지)

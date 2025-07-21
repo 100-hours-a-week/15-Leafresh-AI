@@ -2296,3 +2296,21 @@ except json.JSONDecodeError as json_error:
 - **상세한 오류 로깅**: 문제 발생 시 원인 파악 용이
 - **단계별 추적**: JSON 파싱 → Parser 파싱 → fallback 순서로 문제 추적
 - **원본 데이터 보존**: 실패한 JSON 문자열 로깅으로 원인 분석 가능
+
+# 2025-07-21 챗봇 프롬프트 및 라우터 코드 개선 내역
+
+## 1. 챗봇 프롬프트(LLM_chatbot_base_info_model.py, LLM_chatbot_free_text_model.py) 변경
+- 프롬프트를 **한글 100%**로, recommend/challenges 등 모든 출력이 반드시 한글로만 나오도록 강하게 명시
+- 반드시 하나의 올바른 JSON 객체만 출력, recommend(문자열)와 challenges(객체 배열)만 최상위 필드로
+- challenges 각 항목의 title/description도 한글로만, 영어/숫자/특수문자/이모지/마크다운/코드블록 등 사용 금지
+- JSON 외의 어떤 텍스트도 출력 금지, recommend/challenges 중첩/문자열 등 잘못된 구조 방지
+- 예시 출력({escaped_format}) 포함, 프롬프트 내 지침 강화
+
+## 2. 라우터 코드(chatbot_router.py) 변경
+- SSE 응답에서 LLM 응답 파싱 및 검증 로직 개선
+- event: "challenge"/"close"/"error" 등 이벤트별로 JSON 파싱 및 에러 처리 강화
+- 최종 응답에서 반드시 challenges가 리스트로 포함되어 있는지 검증
+- base-info/free-text 모두 동일한 구조로 챌린지 추천 결과 반환
+- 대화 기록/세션 관리 및 카테고리 처리 로직 개선
+
+---
