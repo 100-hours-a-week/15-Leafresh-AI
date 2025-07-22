@@ -185,15 +185,28 @@ def generate_feedback_items(existing, target):
         if not msg:
             msg.append(f"이번 주는 챌린지 활동이 없었네요. 다음엔 새로운 도전을 기대할게요! {pick_emoji(encourage_emojis)}")
         msg_joined = " ".join(msg)
+        # 문장 단위로 300자 이내로 최대한 길게 포함, 최소 70자 이상
         sentences = re.split(r'(?<=[.!?]) +', msg_joined)
         out = ""
         for s in sentences:
-            if len(out) + len(s) > 200:
+            if len(out) + len(s) > 300:
                 break
             out += s + " "
         out = out.strip()
+        # 최소 70자 이상이 되도록 추가
+        if len(out) < 70:
+            for s in sentences[len(out.split('. ')):]:
+                if len(out) + len(s) > 300:
+                    break
+                out += " " + s
+                if len(out) >= 70:
+                    break
+            out = out.strip()
+        # 그래도 70자 미만이면 그냥 70자까지 자르기
+        if len(out) < 70:
+            out = (msg_joined + " " + out)[:70]
         new_items.append({
-            "instruction": "너는 피드백 어시스턴트야. 아래와 같은 JSON 입력을 받으면, 사용자의 챌린지 활동을 요약해서 칭찬과 격려를 해줘. 한글로, 200자 이내로 답해.",
+            "instruction": "너는 피드백 어시스턴트야. 아래와 같은 JSON 입력을 받으면, 사용자의 챌린지 활동을 요약해서 칭찬과 격려를 해줘. 한글로, 300자 이내로 답해.",
             "input": inp,
             "output": out
         })
@@ -243,8 +256,43 @@ def save_json(data, path):
 
 def force_output_to_string(data):
     for item in data:
-        if isinstance(item["output"], dict):
-            item["output"] = json.dumps(item["output"], ensure_ascii=False)
+        # 피드백 어시스턴트 유형은 건드리지 않음
+        if '피드백 어시스턴트' in item.get('instruction', ''):
+            continue
+        out = item["output"]
+        # 이미 dict면 그대로 직렬화
+        if isinstance(out, dict):
+            item["output"] = json.dumps(out, ensure_ascii=False)
+        # 문자열인데 JSON 오브젝트가 아니면 text로 감싸기
+        elif isinstance(out, str):
+            s = out.strip()
+            if s.startswith("{") and s.endswith("}"):
+                # 이미 JSON 문자열이면 그대로 둠
+                item["output"] = out
+            else:
+                # 일반 텍스트면 {'text': ...}로 감싸서 JSON 문자열로 변환
+                item["output"] = json.dumps({"text": out}, ensure_ascii=False)
+    return data
+
+def add_newlines_to_output(data):
+    for item in data:
+        try:
+            out = item["output"]
+            if isinstance(out, str) and out.strip().startswith("{") and out.strip().endswith("}"):
+                obj = json.loads(out)
+                # recommend 줄바꿈
+                if "recommend" in obj and not obj["recommend"].endswith("\n"):
+                    obj["recommend"] = obj["recommend"].rstrip() + "\n"
+                # challenges 각 항목 줄바꿈
+                if "challenges" in obj:
+                    for ch in obj["challenges"]:
+                        if "title" in ch and not ch["title"].endswith("\n"):
+                            ch["title"] = ch["title"].rstrip() + "\n"
+                        if "description" in ch and not ch["description"].endswith("\n"):
+                            ch["description"] = ch["description"].rstrip() + "\n"
+                item["output"] = json.dumps(obj, ensure_ascii=False)
+        except Exception:
+            continue
     return data
 
 def main():
@@ -253,36 +301,34 @@ def main():
     with open(DATASET_PATH, encoding="utf-8") as f:
         data = json.load(f)
     # 유형별 목표 개수
-    TARGET_SIZE = 10000
+    TARGET_SIZE = 1800
     n_types = 3
     per_type = TARGET_SIZE // n_types
     extra = TARGET_SIZE - per_type * n_types
     type_targets = [per_type] * n_types
     for i in range(extra):
         type_targets[i] += 1
+
     # 기존 데이터 분류
     challenge_items = [x for x in data if '챌린지 추천' in x['instruction']]
     free_text_items = [x for x in data if '자유롭게 대화' in x['instruction']]
     feedback_items = [x for x in data if '피드백 어시스턴트' in x['instruction']]
-    # 부족분 생성
-    new_challenge = generate_challenge_items(challenge_items, type_targets[0])
-    new_free_text = generate_free_text_items(free_text_items, type_targets[1])
-    new_feedback = generate_feedback_items(feedback_items, type_targets[2])
-    # 합치기 및 셔플
-    all_items = challenge_items + new_challenge + free_text_items + new_free_text + feedback_items + new_feedback
+
+    # 부족분 생성 (항상 목표 개수만큼 맞추기)
+    challenge_items_final = (challenge_items + generate_challenge_items([], type_targets[0]))[:type_targets[0]]
+    free_text_items_final = (free_text_items + generate_free_text_items([], type_targets[1]))[:type_targets[1]]
+    feedback_items_final = (feedback_items + generate_feedback_items([], type_targets[2]))[:type_targets[2]]
+
+    all_items = challenge_items_final + free_text_items_final + feedback_items_final
     random.shuffle(all_items)
-    all_items = all_items[:TARGET_SIZE]
-    # save_json(all_items, "Text/LLM/step1_balanced.json")
+
     # output 오브젝트 변환
     data_obj = parse_output_to_object(copy.deepcopy(all_items))
-    # save_json(data_obj, "Text/LLM/step2_output_object.json")
-    # 챌린지 타이틀 번호 정규화
     data_numbered = fix_challenge_title_numbering(copy.deepcopy(data_obj))
     data_stringified = force_output_to_string(data_numbered)
-    # save_json(data_numbered, "Text/LLM/step3_output_object_numbered.json")
-    # 최종 저장
-    save_json(data_stringified, "multitask_dataset_v2.json")
-    print(f"Done. Saved to Text/LLM/multitask_dataset_v2.json")
+    data_stringified = add_newlines_to_output(data_stringified)  # 줄바꿈 추가
+    save_json(data_stringified, "multitask_dataset_v3.json")
+    print(f"Done. Saved to Text/LLM/multitask_dataset_v3.json")
 
 if __name__ == "__main__":
     main() 
