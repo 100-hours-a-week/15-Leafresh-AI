@@ -106,7 +106,7 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
     logger.info(f"[vLLM 호출] 프롬프트 길이: {len(prompt)}")
     url = "http://localhost:8800/v1/chat/completions"
     payload = {
-        "model": "/home/ubuntu/mistral_finetuned_v1/models--maclee123--leafresh_merged_v1/snapshots/0fe572bd6dccfb84946e37fb253ccea74dff2599",
+        "model": "/home/ubuntu/mistral_finetuned_v3/models--maclee123--leafresh_merged_v3/snapshots/123689221e9f5147e9ca36ff34b2fa71757a6b6c",
         "messages": [{"role": "user", "content": prompt}],
         "stream": True,
         "max_tokens":2048
@@ -115,7 +115,7 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
     response_completed = False  # 응답 완료 여부를 추적하는 플래그
     token_buffer = ""  # 토큰을 누적할 버퍼
     # 한글과 영어 모두를 고려한 단어 구분자
-    word_delimiters = [' ', '\n', '\t', '.', ',', '!', '?', ';', ':', '"', "'", '(', ')', '[', ']', '{', '}', '<', '>', '/', '\\', '|', '&', '*', '+', '-', '=', '_', '@', '#', '$', '%', '^', '~', '`', '은', '는', '이', '가', '을', '를', '의', '에', '에서', '로', '으로', '와', '과', '도', '만', '부터', '까지', '나', '든지', '라도', '라서', '고', '며', '거나', '든가', '든']
+    word_delimiters = [' ', '\t', '.', ',', '!', '?', ';', ':', '"', "'", '(', ')', '[', ']', '{', '}', '<', '>', '/', '\\', '|', '&', '*', '+', '-', '=', '_', '@', '#', '$', '%', '^', '~', '`', '은', '는', '이', '가', '을', '를', '의', '에', '에서', '로', '으로', '와', '과', '도', '만', '부터', '까지', '나', '든지', '라도', '라서', '고', '며', '거나', '든가', '든']
 
     try:
         with httpx.stream("POST", url, json=payload, timeout=60.0) as response:
