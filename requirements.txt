@@ -150,3 +150,4 @@ propcache==0.3.1
 proto-plus==1.26.1
 types-requests==2.32.0.20250515
 prometheus_client
+pymongo
