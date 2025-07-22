@@ -628,4 +628,116 @@ rq worker feedback
 - 서버 실행 후 `lsof -i :8000` 등으로 포트 중복 여부 확인 권장
 - 환경 변수/인증 정보 변경 시 반드시 서버 재시작 필요
 
+# 2025-07-22
+
+## 전체 피드백 생성/처리 아키텍처 및 데이터 흐름 (BE → SQS → 워커 → vLLM → 결과 SQS/콜백)
+
+### 1. 전체 흐름 요약
+
+1. **클라이언트 → BE(백엔드)**
+    - 사용자가 앱/웹에서 피드백 요청(챌린지 결과 등)을 보냄
+    - BE(예: Spring, Node, Django 등)가 이 요청을 받아 처리
+2. **BE(백엔드) → AI 서버(FastAPI)**
+    - BE가 AI 서버의 `/ai/feedback` 엔드포인트로 HTTP POST 요청을 보냄 (JSON 형식)
+3. **AI 서버(FastAPI) → SQS(요청 큐)**
+    - FastAPI는 요청을 Pydantic 모델로 검증 후 dict로 만듦
+    - dict → `json.dumps()`로 직렬화 → SQS(요청 큐)에 메시지 발행
+    - FastAPI는 여기까지 관여 (입력 큐에 넣는 역할)
+4. **SQS → SQS 워커**
+    - SQS 워커가 SQS에서 메시지를 받아옴
+    - 메시지의 `Body`(문자열)를 `json.loads()`로 dict로 변환
+5. **SQS 워커 → vLLM**
+    - 워커가 dict 데이터를 바탕으로 프롬프트를 만들고 vLLM(OpenAI 호환 API)에 HTTP POST로 요청
+    - vLLM은 피드백 텍스트(문자열)를 반환
+6. **SQS 워커 → SQS(결과 큐) or BE 콜백**
+    - 워커가 vLLM의 결과를 dict로 래핑
+    - dict → `json.dumps()`로 직렬화 → SQS(결과 큐)에 발행 또는 BE 콜백 URL로 HTTP POST
+    - FastAPI는 이 과정에 관여하지 않음
+7. **BE(백엔드) → 클라이언트**
+    - BE가 결과를 받아 클라이언트에 전달
+
+---
+
+### 2. 구조 다이어그램 (Mermaid)
+
+```mermaid
+graph TD
+    A["클라이언트"] --> B["BE(백엔드)"]
+    B --> C["FastAPI /ai/feedback"]
+    C --> D["SQS(요청 큐, json.dumps)"]
+    D --> E["SQS 워커(json.loads)"]
+    E --> F["vLLM 서버(프롬프트→텍스트)"]
+    F --> G["워커(dict로 래핑)"]
+    G --> H["SQS(결과 큐, json.dumps) 또는 BE 콜백"]
+    H --> I["BE(백엔드)"]
+    I --> J["클라이언트"]
+```
+
+---
+
+### 3. 코드/구현 포인트
+
+- **FastAPI**: 요청을 받아 SQS(메시지 큐)에 넣는 역할만 담당 (SNS는 사용하지 않음)
+- **SQS 워커**: SQS에서 메시지를 받아 vLLM에 요청, 결과를 SQS(결과 큐)나 콜백으로 직접 전달 (FastAPI는 관여하지 않음)
+- **vLLM**: 프롬프트 기반 텍스트 생성, 응답은 문자열
+- **SQS**: 모든 메시지는 문자열(JSON 직렬화)로 저장/전달
+- **BE**: 결과를 받아 클라이언트에 전달
+
+---
+
+### 4. 핵심 예시 코드
+
+#### FastAPI → SQS
+```python
+message_json = json.dumps(request_data, ensure_ascii=False, default=str)
+sqs.send_message(
+    QueueUrl=queue_url,
+    MessageBody=message_json,
+    MessageGroupId="MessageId"
+)
+```
+
+#### SQS 워커 → vLLM → 결과 SQS/콜백
+```python
+data = json.loads(message['Body'])
+feedback_result = asyncio.run(feedback_model.generate_feedback(data))
+payload = {
+    "memberId": data.get("memberId"),
+    "content": feedback_result.get("data", {}).get("feedback", ""),
+    "status": "success",
+    "timestamp": data.get("timestamp"),
+    "requestId": data.get("requestId")
+}
+message_id = publish_result(payload)  # SQS(결과 큐)로 직접 발행 또는 콜백 URL로 POST
+```
+
+---
+
+### 5. 주요 포인트 정리
+
+- SQS에 들어가는 정보는 반드시 문자열(JSON 직렬화)
+- 워커는 json.loads()로 파싱해서 dict로 사용
+- vLLM에는 dict(혹은 메시지 리스트) 형태로 전달, 응답은 텍스트(문자열)
+- 결과도 dict → json.dumps() → SQS(또는 콜백)
+- FastAPI는 입력 큐에 넣는 역할만, 결과 전달에는 관여하지 않음
+- SNS는 사용하지 않고, SQS(메시지 큐)만 사용
+
+---
+
+### 6. 실무적 주의사항
+
+- SQS FIFO 큐 사용 시 MessageGroupId 필수
+- 환경 변수/인증 정보 누락, 오타, 서버/워커 재시작 등 운영상 주의
+- 여러 워커가 동시에 처리할 때 메시지 중복/순서 보장 등 SQS 특성 숙지
+- Dead Letter Queue(DLQ) 설정 권장
+
+---
+
+### 7. 결론
+
+- BE가 클라이언트 요청을 받아 AI 서버로 넘기는 것이 진짜 시작
+- FastAPI는 SQS(요청 큐)에 메시지를 넣는 역할만 담당
+- SQS 워커가 vLLM에 요청, 결과를 SQS(결과 큐)나 콜백으로 직접 전달
+- 전체 데이터 흐름은 dict → json.dumps() → SQS → json.loads() → dict → vLLM(프롬프트) → 텍스트 응답 → dict로 래핑 → json.dumps() → SQS(또는 콜백)
+
 
