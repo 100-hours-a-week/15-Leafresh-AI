@@ -7,6 +7,7 @@ import threading
 from contextlib import asynccontextmanager
 
 from model.verify.worker import run_worker
+from model.feedback.gcp_pubsub_worker import run_worker as run_feedback_worker
 from router.verify_router import router as verify_router
 
 from router.censorship_router import router as censorship_router
@@ -34,6 +35,7 @@ def run_metrics_server():
 @asynccontextmanager
 async def lifespan(app: FastAPI):               # app 인자를 받는 형태가 아니면 에러가 발생하므로 삭제 불가능 
     threading.Thread(target=run_worker, daemon=True).start()
+    threading.Thread(target=run_feedback_worker, daemon=True).start()   # 피드백 워커를 별도 스레드에서 실행
     threading.Thread(target=run_metrics_server, daemon=True).start()    # 메트릭 서버를 별도 스레드에서 실행 
     yield
 

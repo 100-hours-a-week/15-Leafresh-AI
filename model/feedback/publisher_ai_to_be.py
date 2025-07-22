@@ -4,9 +4,9 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv()
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+# GOOGLE_APPLICATION_CREDENTIALS는 메인 워커에서 이미 설정됨
 
-project_id = os.getenv("GOOGLE_CLOUD_PROJECT_MAC")
+project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "leafresh-prod3")
 topic_id = os.getenv("PUBSUB_TOPIC_FEEDBACK_RESULT_DEV")
 
 publisher = pubsub_v1.PublisherClient()
