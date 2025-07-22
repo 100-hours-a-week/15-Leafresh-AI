@@ -53,28 +53,20 @@ base_prompt = PromptTemplate(
     input_variables=["location", "workType", "category", "escaped_format"],
     template="""
 너는 챌린지 추천 챗봇이야. 사용자가 선택한 '위치, 직업, 카테고리'에 맞춰 구체적인 친환경 챌린지 3가지를 JSON 형식으로 추천해줘.
-
-아래 지침을 반드시 지켜야 해:
-- 답변은 반드시 하나의 올바른 JSON 객체로만 출력해야 해.
-- JSON은 반드시 최상위에 "recommend"(문자열)와 "challenges"(객체 배열) 두 개의 필드만 가져야 해.
-- "recommend" 안에 JSON이나 다른 구조를 넣지 마.
-- JSON 객체 외에 어떤 텍스트, 설명, 마크다운, 코드블록도 출력하지 마.
-- "challenges" 배열의 각 항목은 반드시 "title"과 "description" 필드를 가져야 하고, 둘 다 한글로 작성해야 해.
-- 모든 출력(recommend, title, description)은 반드시 한글로만 작성해야 해. 영어, 숫자, 특수문자, 이모지 등은 사용하지 마.
-- "challenges"를 문자열로 출력하거나 "recommend" 안에 중첩하지 마.
-
-
-예시 출력:
-{escaped_format}
-
-지침:
-- 아래 위치, 직업, 카테고리 정보를 참고해.
-- 3개의 구체적인 친환경 챌린지를 추천해.
-- 반드시 위 예시처럼 JSON 객체만, 한글로만 출력해.
-
 위치: {location}
 직업: {workType}
 카테고리: {category}
+아래 지침을 반드시 지켜야 해:
+
+- JSON 객체 외에 어떤 텍스트, 설명, 마크다운, 코드블록도 출력하지 마.
+- "challenges" 배열의 각 항목은 반드시 "title"과 "description" 필드를 가져야 하고, 둘 다 한글로 작성해야 해.
+- 모든 출력(recommend, title, description)은 반드시 한글로만 작성해야 해. 영어, 특수문자, 이모지 등은 사용하지 마.
+- "challenges"를 문자열로 출력하거나 "recommend" 안에 중첩하지 마.
+
+예시 출력:
+{escaped_format}
+- 반드시 위 예시처럼 JSON 객체만, 한글로만 출력해.
+
 """
 )
 
@@ -93,7 +85,7 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
     logger.info(f"[vLLM 호출] 프롬프트 길이: {len(prompt)}")
     url = "http://localhost:8800/v1/chat/completions"
     payload = {
-        "model": "/home/ubuntu/mistral_finetuned_v1/models--maclee123--leafresh_merged_v1/snapshots/0fe572bd6dccfb84946e37fb253ccea74dff2599",
+        "model": "/home/ubuntu/mistral_finetuned_v3/models--maclee123--leafresh_merged_v3/snapshots/123689221e9f5147e9ca36ff34b2fa71757a6b6c",
         "messages": [
             {"role": "user", "content": prompt}
         ],
@@ -157,11 +149,11 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                                         cleaned_text = re.sub(r'[\[\]{}$]', '', cleaned_text)  # 괄호와 $ 제거
                                         cleaned_text = re.sub(r',\s*$', '', cleaned_text)  # 끝의 쉼표 제거
                                         # 줄바꿈 보존: \n은 그대로 두고 다른 공백 문자만 제거
-                                        cleaned_text = re.sub(r'[ \t\r\f\v]+', ' ', cleaned_text)  # \n 제외 공백만 제거
-                                        # 이스케이프된 문자들을 실제 문자로 변환
-                                        cleaned_text = cleaned_text.replace('\\\\n', '\n')  # 이중 이스케이프된 줄바꿈을 실제 줄바꿈으로 변환
-                                        cleaned_text = cleaned_text.replace('\\n', '\n')  # 이스케이프된 줄바꿈을 실제 줄바꿈으로 변환
-                                        # 백슬래시 제거 (줄바꿈이 아닌 경우)
+                                        # cleaned_text = re.sub(r'[ \t\r\f\v]+', ' ', cleaned_text)  # \n 제외 공백만 제거
+                                        # # 이스케이프된 문자들을 실제 문자로 변환
+                                        # cleaned_text = cleaned_text.replace('\\\\n', '\n')  # 이중 이스케이프된 줄바꿈을 실제 줄바꿈으로 변환
+                                        # cleaned_text = cleaned_text.replace('\\n', '\n')  # 이스케이프된 줄바꿈을 실제 줄바꿈으로 변환
+                                        # # 백슬래시 제거 (줄바꿈이 아닌 경우)
                                         cleaned_text = cleaned_text.replace('\\\\', '')  # 이중 백슬래시 제거
                                         cleaned_text = cleaned_text.replace('\\', '')  # 단일 백슬래시 제거
                                         # 추가: 연속된 공백을 하나로 정리하되 줄바꿈은 보존
