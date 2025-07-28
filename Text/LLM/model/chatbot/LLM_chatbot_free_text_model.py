@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from langchain.output_parsers import StructuredOutputParser, ResponseSchema
 from langgraph.graph import StateGraph, END
 from typing import TypedDict, Annotated, Sequence, Optional, Dict, List, Generator, Any
-from Text.LLM.model.chatbot.chatbot_constants import label_mapping, ENV_KEYWORDS, BAD_WORDS
+from Text.LLM.model.chatbot.chatbot_constants import label_mapping, ENV_KEYWORDS, BAD_WORDS, category_keywords
 from transformers import TextIteratorStreamer, LogitsProcessorList, InfNanRemoveLogitsProcessor
 import torch
 import os
@@ -56,48 +56,45 @@ retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
 
 # RAG 방식 챌린지 추천을 위한 Output Parser 정의
 rag_response_schemas = [
-    ResponseSchema(name="recommend", description="추천 텍스트를 한글로 한 문장으로 출력해주세요.(예: '이런 챌린지를 추천합니다.')"),
+    ResponseSchema(name="recommend", description="추천 텍스트를 한글로 한 문장으로 출력해주세요. (예: '이런 챌린지를 추천합니다.')"),
     ResponseSchema(name="challenges", description="추천 챌린지 리스트, 각 항목은 title, description 포함, description은 한글로 한 문장으로 요약해주세요.")
 ]
 
 # LangChain의 StructuredOutputParser를 사용하여 JSON 포맷을 정의
 rag_parser = StructuredOutputParser.from_response_schemas(rag_response_schemas)
 
-# JSON 포맷을 이스케이프 처리
-escaped_format = rag_parser.get_format_instructions().replace("{", "{{").replace("}", "}}")
-
-# RAG 방식 챌린지 추천을 위한 PromptTemplate 정의
+# chat_template 단순화에 맞춘 프롬프트 (단순화)
 custom_prompt = PromptTemplate(
-    input_variables=["context", "query", "messages", "category", "escaped_format"],
+    input_variables=["context", "query", "messages", "category"],
     template="""
 너는 사용자와 자유롭게 대화하며 대화의 맥락에 맞는 친환경 챌린지 3가지를 JSON 형식으로 추천하는 챗봇이야.
 
-아래 지침을 반드시 지켜야 해:
-- 답변은 반드시 하나의 올바른 JSON 객체로만 출력해야 해.
-- JSON은 반드시 최상위에 "recommend"(문자열)와 "challenges"(객체 배열) 두 개의 필드만 가져야 해.
-- "recommend" 안에 JSON이나 다른 구조를 넣지 마.
-- JSON 객체 외에 어떤 텍스트, 설명, 마크다운, 코드블록도 출력하지 마.
-- "challenges" 배열의 각 항목은 반드시 "title"과 "description" 필드를 가져야 하고, 둘 다 한글로 작성해야 해.
-- 모든 출력(recommend, title, description)은 반드시 한글로만 작성해야 해. 영어, 숫자, 특수문자, 이모지 등은 사용하지 마.
-- "challenges"를 문자열로 출력하거나 "recommend" 안에 중첩하지 마.
-- 반드시 JSON 객체만 출력해. 그 외에는 아무것도 출력하지 마.
+아래 참고 문서와 이전 대화를 바탕으로 사용자의 상황에 맞는 친환경 챌린지 3가지를 추천해줘.
 
-예시 출력:
-{escaped_format}
-
-지침:
-- 아래 컨텍스트와 이전 대화, 그리고 사용자의 질문을 참고해.
-- 3개의 구체적인 친환경 챌린지를 추천해.
-- 반드시 위 예시처럼 JSON 객체만, 한글로만 출력해.
-
-컨텍스트:
+참고 문서:
 {context}
 
 이전 대화:
 {messages}
 
-현재 질문:
-{query}
+현재 카테고리: {category}
+사용자 질문: {query}
+
+출력 예시:
+``` 
+    ```json
+{{
+    "recommend": "사용자 상황에 맞는 한 문장 추천 텍스트",
+    "challenges": [
+        {{"title": "1. 첫번째 챌린지", "description": "간단한 설명"}},
+        {{"title": "2. 두번째 챌린지", "description": "간단한 설명"}},
+        {{"title": "3. 세번째 챌린지", "description": "간단한 설명"}}
+    ]
+}}
+    ```
+```
+
+반드시 위 예시와 같은 마크다운+JSON 구조로 한글로만 출력해. recommend는 한 문장, challenges는 3개 챌린지로! 출력 형식은 반드시 마크다운+JSON 구조로!
 """
 )
 
@@ -106,16 +103,18 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
     logger.info(f"[vLLM 호출] 프롬프트 길이: {len(prompt)}")
     url = "http://localhost:8800/v1/chat/completions"
     payload = {
-        "model": "/home/ubuntu/mistral_finetuned_v3/models--maclee123--leafresh_merged_v3/snapshots/123689221e9f5147e9ca36ff34b2fa71757a6b6c",
+        "model": "/home/wonwonfll/mistral_fintuned5/models--mistralai--Mistral-7B-Instruct-v0.3/snapshots/0d4b76e1efeb5eb6f6b5e757c79870472e04bd3a",
         "messages": [{"role": "user", "content": prompt}],
         "stream": True,
-        "max_tokens":2048
+        "max_tokens": 512,
+        "temperature": 0.7,
+        "do_sample": True # temperature 설정 시 반드시 True로 설정해야 함: 확률적 샘플링 활성적
     }
 
     response_completed = False  # 응답 완료 여부를 추적하는 플래그
     token_buffer = ""  # 토큰을 누적할 버퍼
-    # 한글과 영어 모두를 고려한 단어 구분자
-    word_delimiters = [' ', '\t', '.', ',', '!', '?', ';', ':', '"', "'", '(', ')', '[', ']', '{', '}', '<', '>', '/', '\\', '|', '&', '*', '+', '-', '=', '_', '@', '#', '$', '%', '^', '~', '`', '은', '는', '이', '가', '을', '를', '의', '에', '에서', '로', '으로', '와', '과', '도', '만', '부터', '까지', '나', '든지', '라도', '라서', '고', '며', '거나', '든가', '든']
+    # 한글과 영어 모두를 고려한 단어 구분자 (줄바꿈 포함)
+    word_delimiters = [' ', '\t', '\n', '.', ',', '!', '?', ';', ':', '"', "'", '(', ')', '[', ']', '{', '}', '<', '>', '/', '\\', '|', '&', '*', '+', '-', '=', '_', '@', '#', '$', '%', '^', '~', '`', '은', '는', '이', '가', '을', '를', '의', '에', '에서', '로', '으로', '와', '과', '도', '만', '부터', '까지', '나', '든지', '라도', '라서', '고', '며', '거나', '든가', '든']
 
     try:
         with httpx.stream("POST", url, json=payload, timeout=60.0) as response:
@@ -157,6 +156,18 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                                     token_buffer = words[-1] if words else ""
                                     
                                     for word in complete_words:
+                                        # \n 문자는 그대로 전송 (줄바꿈 처리)
+                                        if word == '\n':
+                                            yield {
+                                                "event": "challenge",
+                                                "data": json.dumps({
+                                                    "status": 200,
+                                                    "message": "토큰 생성",
+                                                    "data": "\n"
+                                                }, ensure_ascii=False)
+                                            }
+                                            continue
+                                        
                                         # 토큰 정제 - 순수 텍스트만 추출
                                         cleaned_text = word
                                         # JSON 관련 문자열 제거
@@ -168,12 +179,13 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                                         cleaned_text = re.sub(r',\s*$', '', cleaned_text)  # 끝의 쉼표 제거
                                         # 줄바꿈 보존: \n은 그대로 두고 다른 공백 문자만 제거
                                         cleaned_text = re.sub(r'[ \t\r\f\v]+', ' ', cleaned_text)  # \n 제외 공백만 제거
-                                        # 이스케이프된 문자들을 실제 문자로 변환
+                                        # 줄바꿈 보존: 이스케이프된 줄바꿈을 실제 줄바꿈으로 변환
                                         cleaned_text = cleaned_text.replace('\\\\n', '\n')  # 이중 이스케이프된 줄바꿈을 실제 줄바꿈으로 변환
                                         cleaned_text = cleaned_text.replace('\\n', '\n')  # 이스케이프된 줄바꿈을 실제 줄바꿈으로 변환
-                                        # 백슬래시 제거 (줄바꿈이 아닌 경우)
-                                        cleaned_text = cleaned_text.replace('\\\\', '')  # 이중 백슬래시 제거
-                                        cleaned_text = cleaned_text.replace('\\', '')  # 단일 백슬래시 제거
+                                        # 줄바꿈이 아닌 백슬래시만 제거
+                                        cleaned_text = cleaned_text.replace('\\\\', '')  # 이중 백슬래시 제거 (줄바꿈 제외)
+                                        # \n을 제외한 다른 이스케이프 문자들만 제거
+                                        cleaned_text = re.sub(r'\\(?!n)', '', cleaned_text)  # \n을 제외한 백슬래시 제거
                                         # 추가: 연속된 공백을 하나로 정리하되 줄바꿈은 보존
                                         cleaned_text = re.sub(r' +', ' ', cleaned_text)  # 공백만 정리
                                         
@@ -182,17 +194,42 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                                         if re.fullmatch(r":\s*", cleaned_text) or cleaned_text in ["json", "recommend", "challenges", "title", "description"]:
                                             continue
                                         if cleaned_text and cleaned_text.strip() not in ["", "``", "```"] and not response_completed:
-                                            # title 내용이 끝날 때 줄바꿈 추가 (번호.으로 끝나는 경우)
-                                            if re.search(r'\d+\.$', cleaned_text) or cleaned_text.endswith('title') or cleaned_text.endswith('description'):
-                                                cleaned_text += '\n'
-                                            yield {
-                                                "event": "challenge",
-                                                "data": json.dumps({
-                                                    "status": 200,
-                                                    "message": "토큰 생성",
-                                                    "data": cleaned_text #단어 단위 출력
-                                                }, ensure_ascii=False)
-                                            }
+                                            # 문자열 \n을 실제 줄바꿈으로 변환 처리
+                                            if '\\n' in cleaned_text:
+                                                parts = cleaned_text.split('\\n')
+                                                for i, part in enumerate(parts):
+                                                    if part.strip():
+                                                        yield {
+                                                            "event": "challenge",
+                                                            "data": json.dumps({
+                                                                "status": 200,
+                                                                "message": "토큰 생성",
+                                                                "data": part.strip()
+                                                            }, ensure_ascii=False)
+                                                        }
+                                                    if i < len(parts) - 1:  # 마지막이 아닌 경우 줄바꿈 추가
+                                                        yield {
+                                                            "event": "challenge",
+                                                            "data": json.dumps({
+                                                                "status": 200,
+                                                                "message": "토큰 생성",
+                                                                "data": "\n"
+                                                            }, ensure_ascii=False)
+                                                        }
+                                            else:
+                                                # title 내용이 끝날 때 줄바꿈 추가 (번호.으로 끝나는 경우)
+                                                if cleaned_text.endswith(".") or cleaned_text.endswith("세요.") or cleaned_text.endswith("니다.") or "챌린지" in cleaned_text or cleaned_text.endswith("합니다"):
+                                                    cleaned_text += '\n'
+                                                # 최종 출력 전에 \n을 실제 줄바꿈으로 변환
+                                                final_text = cleaned_text.replace('\\n', '\n')
+                                                yield {
+                                                    "event": "challenge",
+                                                    "data": json.dumps({
+                                                        "status": 200,
+                                                        "message": "토큰 생성",
+                                                        "data": final_text #단어 단위 출력
+                                                    }, ensure_ascii=False)
+                                                }
                                 else:
                                     # 단어가 하나뿐이면 버퍼에 유지
                                     pass
@@ -235,6 +272,18 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                                     token_buffer = words[-1] if words else ""
                                     
                                     for word in complete_words:
+                                        # \n 문자는 그대로 전송 (줄바꿈 처리)
+                                        if word == '\n':
+                                            yield {
+                                                "event": "challenge",
+                                                "data": json.dumps({
+                                                    "status": 200,
+                                                    "message": "토큰 생성",
+                                                    "data": "\n"
+                                                }, ensure_ascii=False)
+                                            }
+                                            continue
+                                        
                                         # 토큰 정제 - 순수 텍스트만 추출
                                         cleaned_text = word
                                         # JSON 관련 문자열 제거
@@ -246,12 +295,13 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                                         cleaned_text = re.sub(r',\s*$', '', cleaned_text)  # 끝의 쉼표 제거
                                         # 줄바꿈 보존: \n은 그대로 두고 다른 공백 문자만 제거
                                         cleaned_text = re.sub(r'[ \t\r\f\v]+', ' ', cleaned_text)  # \n 제외 공백만 제거
-                                        # 이스케이프된 문자들을 실제 문자로 변환
+                                        # 줄바꿈 보존: 이스케이프된 줄바꿈을 실제 줄바꿈으로 변환
                                         cleaned_text = cleaned_text.replace('\\\\n', '\n')  # 이중 이스케이프된 줄바꿈을 실제 줄바꿈으로 변환
                                         cleaned_text = cleaned_text.replace('\\n', '\n')  # 이스케이프된 줄바꿈을 실제 줄바꿈으로 변환
-                                        # 백슬래시 제거 (줄바꿈이 아닌 경우)
-                                        cleaned_text = cleaned_text.replace('\\\\', '')  # 이중 백슬래시 제거
-                                        cleaned_text = cleaned_text.replace('\\', '')  # 단일 백슬래시 제거
+                                        # 줄바꿈이 아닌 백슬래시만 제거
+                                        cleaned_text = cleaned_text.replace('\\\\', '')  # 이중 백슬래시 제거 (줄바꿈 제외)
+                                        # \n을 제외한 다른 이스케이프 문자들만 제거
+                                        cleaned_text = re.sub(r'\\(?!n)', '', cleaned_text)  # \n을 제외한 백슬래시 제거
                                         # 추가: 연속된 공백을 하나로 정리하되 줄바꿈은 보존
                                         cleaned_text = re.sub(r' +', ' ', cleaned_text)  # 공백만 정리
                                         
@@ -260,17 +310,44 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                                         if re.fullmatch(r":\s*", cleaned_text) or cleaned_text in ["json", "recommend", "challenges", "title", "description"]:
                                             continue
                                         if cleaned_text and cleaned_text.strip() not in ["", "``", "```"] and not response_completed:
-                                            # title 내용이 끝날 때 줄바꿈 추가 (번호.으로 끝나는 경우)
-                                            if re.search(r'\d+\.$', cleaned_text) or cleaned_text.endswith('title') or cleaned_text.endswith('description'):
-                                                cleaned_text += '\n'
-                                            yield {
-                                                "event": "challenge",
-                                                "data": json.dumps({
-                                                    "status": 200,
-                                                    "message": "토큰 생성",
-                                                    "data": cleaned_text #단어 단위 출력
-                                                }, ensure_ascii=False)
-                                            }
+                                            # 문자열 \n을 실제 줄바꿈으로 변환 처리
+                                            if '\\n' in cleaned_text:
+                                                parts = cleaned_text.split('\\n')
+                                                for i, part in enumerate(parts):
+                                                    if part.strip():
+                                                        yield {
+                                                            "event": "challenge",
+                                                            "data": json.dumps({
+                                                                "status": 200,
+                                                                "message": "토큰 생성",
+                                                                "data": part.strip()
+                                                            }, ensure_ascii=False)
+                                                        }
+                                                    if i < len(parts) - 1:  # 마지막이 아닌 경우 줄바꿈 추가
+                                                        yield {
+                                                            "event": "challenge",
+                                                            "data": json.dumps({
+                                                                "status": 200,
+                                                                "message": "토큰 생성",
+                                                                "data": "\n"
+                                                            }, ensure_ascii=False)
+                                                        }
+                                            else:
+                                                # title 내용이 끝날 때 줄바꿈 추가 (번호.으로 끝나는 경우)
+                                                # if cleaned_text.endswith(".") or cleaned_text.endswith("세요.") or cleaned_text.endswith("니다.") or "챌린지" in cleaned_text or cleaned_text.endswith("합니다"):
+                                                # 문장 끝에 .으로 끝나는 경우
+                                                if cleaned_text.endswith("."):
+                                                    cleaned_text += '\n'
+                                                # 최종 출력 전에 \n을 실제 줄바꿈으로 변환
+                                                final_text = cleaned_text.replace('\\n', '\n')
+                                                yield {
+                                                    "event": "challenge",
+                                                    "data": json.dumps({
+                                                        "status": 200,
+                                                        "message": "토큰 생성",
+                                                        "data": final_text #단어 단위 출력
+                                                    }, ensure_ascii=False)
+                                                }
                                 else:
                                     # 단어가 하나뿐이면 버퍼에 유지
                                     pass
@@ -568,8 +645,7 @@ def generate_response(state: ChatState) -> ChatState:
             context=state["context"],
             query=state["current_query"],
             messages=messages,
-            category=category,
-            escaped_format=escaped_format  # 이 줄 추가
+            category=category
         )
         
         # LLM 응답 생성 (스트리밍 방식 유지)
@@ -695,19 +771,22 @@ conversation_states = {}
 
 def process_chat(sessionId: str, query: str, base_info_category: Optional[str] = None) -> str:
     """대화 처리 함수"""
-    print(f"\n=== Process Chat Start ===")
-    print(f"Initial base_info_category: {base_info_category}")
-    print(f"User query: {query}")
-    print(f"Session ID: {sessionId}")
+    print(f"\n🚀🚀🚀 FREE-TEXT PROCESS CHAT START 🚀🚀🚀")
+    print(f"🔥 Initial base_info_category: {base_info_category}")
+    print(f"🔥 User query: {query}")
+    print(f"🔥 Session ID: {sessionId}")
+    print(f"🔥 코드 버전: 2024-07-27-v2")
 
     # 이전 대화 상태 가져오기 또는 새로 생성
     if sessionId not in conversation_states:
+        # free-text에서 base_info_category가 없으면 기본값 설정
         if not base_info_category:
-            raise ValueError("새로운 세션은 base-info에서 카테고리가 필요합니다.")
+            base_info_category = "제로웨이스트"  # 기본 카테고리
+            print(f"🔥 No base_info_category provided. Using default: {base_info_category}")
         if base_info_category not in label_mapping:
             raise ValueError(f"잘못된 카테고리 값: {base_info_category}")
             
-        print(f"New session detected. Initializing with category: {base_info_category}")
+        print(f"🔥 New session detected. Initializing with category: {base_info_category}")
         conversation_states[sessionId] = {
             "messages": [],             # 대화 기록 
             "current_query": "",        # 사용자가 입력한 현재 질문
@@ -751,14 +830,20 @@ def process_chat(sessionId: str, query: str, base_info_category: Optional[str] =
         state["messages"].append(f"Category randomly selected: {sampled_category}")
         category_changed = True
 
-    # 3. 특정 카테고리 요청 처리
+    # 3. 특정 카테고리 요청 처리 (키워드 기반)
     else:
-        for category in label_mapping.keys():
-            if category in query:
+        query_lower = query.lower()
+        print(f"🔍 키워드 검색 시작: '{query_lower}'")
+        for category, keywords in category_keywords.items():
+            print(f"   - 카테고리 '{category}' 키워드 확인: {keywords}")
+            if any(keyword in query_lower for keyword in keywords):
+                print(f"키워드 매칭 성공! '{category}' 카테고리로 변경")
                 state["category"] = category
-                state["messages"].append(f"Category changed to {category}")
+                state["messages"].append(f"Category changed to {category} based on keywords")
                 category_changed = True
                 break
+        if not category_changed:
+            print(f"매칭되는 키워드 없음. 기존 카테고리 유지: {state['category']}")
 
     # 4. base-info 카테고리 처리
     if not category_changed and base_info_category and state["category"] != base_info_category:

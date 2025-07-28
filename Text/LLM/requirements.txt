@@ -154,6 +154,10 @@ types-requests==2.32.0.20250515
 sentencepiece==0.2.0
 accelerate==0.27.2
 
+# === 모니터링 & 큐잉 ===
+prometheus_client==0.22.1
+redis==5.2.1
+
 bitsandbytes==0.43.1
 rq==2.4.0
 

@@ -1935,7 +1935,7 @@ word_delimiters = [
 custom_prompt = PromptTemplate(
     input_variables=["context", "query", "messages", "category"],
     template=f"""당신은 환경 보호 챌린지를 추천하는 AI 어시스턴트입니다.
-다음 문서와 이전 대화 기록을 참고하여 사용자에게 적절한 친환경 챌린지를 3개 추천해주세요.
+다음 문서와 이전 대화 기록을 참고하여 사용자에게 적절한 친환경 챌린지를 3개 추천해줘요.
 
 이전 대화 기록:
 {{messages}}
@@ -2313,4 +2313,702 @@ except json.JSONDecodeError as json_error:
 - base-info/free-text 모두 동일한 구조로 챌린지 추천 결과 반환
 - 대화 기록/세션 관리 및 카테고리 처리 로직 개선
 
+# 2025-07-27 프롬프트 개선 및 JSON 구조 문제 해결
+
+## 1. base-info 프롬프트에서 escaped_format 문제 해결
+
+### 문제점
+- `base-info`에서 **JSON 파싱이 완전히 실패**하고 있어서, 모든 내용이 `recommend` 필드에 문자열로 들어가고 `challenges`는 빈 배열이 되고 있음
+- **잘못된 JSON 구조**: `"challenges": "[{\"title\"...` - 배열이 문자열로 이스케이프됨
+- **중첩된 JSON**: `json{\"recommend\":...` - json이라는 접두사가 붙음
+- **불완전한 JSON**: 백틱(`)으로 끝나고 있음
+
+### 근본 원인 분석 (파인튜닝 데이터셋)
+**파인튜닝 데이터셋(`multitask_dataset_v3.json`)이 주요 원인이었음:**
+
+#### 파인튜닝된 모델의 학습 패턴
+```json
+// 파인튜닝 데이터의 실제 패턴
+{
+  "output": "{\"recommend\": \"산의 정기를 받아 더 건강하고 가벼워지는 비건 챌린지를 시작해보세요.\\n\", \"challenges\": [{\"title\": \"1. 산채비빔밥으로 점심 즐기기\\n\", \"description\": \"주변 식당에서 신선한 나물로 만든 산채비빔밥으로 건강한 한 끼를 즐겨요.\\n\"}]}"
+}
+```
+
+**모델이 학습한 패턴:**
+- ✅ `recommend` 필드에 **상세한 추천 내용을 모두 포함**
+- ✅ `challenges` 배열은 **구조화된 리스트**로 출력
+- ❌ **프롬프트 지시사항보다 파인튜닝 학습을 우선**
+
+#### LangChain escaped_format vs 파인튜닝 학습의 충돌
+```python
+# LangChain의 복잡한 escaped_format (모델이 혼란스러워함)
+{
+  "recommend": "string // 추천 텍스트를 한글로 한 문장으로 출력해 주세요. (예: '이런 챌린지를 추천합니다.')",
+  "challenges": "array // 추천 챌린지 리스트, 각 항목은 title, description 포함"
+}
+
+# 파인튜닝된 모델의 실제 학습 패턴 (모델이 따르고 싶어하는 형태)
+{
+  "recommend": "상세한 추천 설명과 맥락 + 전체 챌린지 요약",
+  "challenges": [{"title": "구체적 제목", "description": "구체적 설명"}]
+}
+```
+
+**충돌하는 두 가지 지시사항:**
+1. **프롬프트 (escaped_format)**: "recommend는 한 문장으로만"
+2. **파인튜닝 학습**: "recommend에 상세한 내용을 모두 포함"
+
+**결과:** 모델이 **파인튜닝 학습을 우선**하여 스키마를 무시하고 `recommend`에 모든 내용을 넣음
+
+### 원인 분석 (기술적 측면)
+- **복잡한 스키마**: LangChain의 자동 생성 형식이 파인튜닝 패턴과 충돌
+- **주석과 타입 힌트**: 모델이 실제 데이터로 오해하여 혼란 야기
+- **이스케이프 처리**: 가독성 저하로 디버깅 어려움
+- **파인튜닝 우선순위**: 모델이 프롬프트보다 학습된 패턴을 우선적으로 따름
+
+### 해결책
+**파인튜닝 패턴에 맞는 단순하고 명확한 프롬프트로 변경**:
+
+#### 기존 프롬프트 (문제 있음 - LangChain 자동 생성)
+```python
+# escaped_format = base_parser.get_format_instructions().replace("{", "{{").replace("}", "}}")
+base_prompt = PromptTemplate(
+    input_variables=["location", "workType", "category", "escaped_format"],
+    template="""
+너는 챌린지 추천 챗봇이야. 사용자가 선택한 '위치, 직업, 카테고리'에 맞춰 구체적인 친환경 챌린지 3가지를 JSON 형식으로 추천해줘.
+위치: {location}
+직업: {workType}
+카테고리: {category}
+아래 지침을 반드시 지켜야 해:
+
+- JSON 객체 외에 어떤 텍스트, 설명, 마크다운, 코드블록도 출력하지 마.
+- "challenges" 배열의 각 항목은 반드시 "title"과 "description" 필드를 가져야 하고, 둘 다 한글로 작성해야 해.
+- 모든 출력(recommend, title, description)은 반드시 한글로만 작성해야 해. 영어, 특수문자, 이모지 등은 사용하지 마.
+- "challenges"를 문자열로 출력하거나 "recommend" 안에 중첩하지 마.
+
+예시 출력:
+{escaped_format}  # ← 이 부분이 문제였음 (복잡한 LangChain 자동 생성 형식)
+- 반드시 위 예시처럼 JSON 객체만, 한글로만 출력해.
+
+"""
+)
+```
+
+#### 개선된 프롬프트 (파인튜닝 패턴 호환)
+```python
+base_prompt = PromptTemplate(
+    input_variables=["location", "workType", "category"],
+    template="""
+너는 챌린지 추천 챗봇이야. 사용자가 선택한 '위치, 직업, 카테고리'에 맞춰 구체적인 친환경 챌린지 3가지를 JSON 형식으로 추천해줘.
+위치: {location}
+직업: {workType}
+카테고리: {category}
+
+아래 지침을 반드시 지켜야 해:
+- 답변은 반드시 하나의 올바른 JSON 객체로만 출력해야 해.
+- JSON은 반드시 최상위에 "recommend"(문자열)와 "challenges"(객체 배열) 두 개의 필드만 가져야 해.
+- "recommend" 안에 JSON이나 다른 구조를 넣지 마.
+- JSON 객체 외에 어떤 텍스트, 설명, 마크다운, 코드블록도 출력하지 마.
+- "challenges" 배열의 각 항목은 반드시 "title"과 "description" 필드를 가져야 하고, 둘 다 한글로 작성해야 해.
+- 모든 출력(recommend, title, description)은 반드시 한글로만 작성해야 해. 영어, 특수문자, 이모지 등은 사용하지 마.
+- "challenges"를 문자열로 출력하거나 "recommend" 안에 중첩하지 마.
+
+예시 출력:
+{{"recommend": "이런 챌린지를 추천합니다.", "challenges": [{{"title": "제로웨이스트 실천", "description": "일회용품 사용을 줄이고 재사용 가능한 제품을 사용해보세요."}}, {{"title": "대중교통 이용하기", "description": "자가용 대신 대중교통을 이용하여 탄소 배출을 줄여보세요."}}, {{"title": "친환경 제품 구매", "description": "환경 인증을 받은 친환경 제품을 우선적으로 구매해보세요."}}]}}
+
+반드시 위 예시처럼 올바른 JSON 객체만, 한글로만 출력해.
+
+"""
+)
+```
+
+### escaped_format의 원래 목적과 문제점
+
+#### LangChain StructuredOutputParser의 의도
+- ✅ **자동화**: 수동 JSON 예시 작성 불필요
+- ✅ **일관성**: ResponseSchema 기반 구조화
+- ✅ **유지보수성**: 스키마 변경 시 자동 업데이트
+
+#### 실제 문제점
+- ❌ **복잡성**: LangChain이 생성한 형식이 너무 복잡 (주석, 타입 힌트 포함)
+- ❌ **파인튜닝 충돌**: 학습된 패턴과 자동 생성 스키마가 불일치
+- ❌ **LLM 혼란**: 주석과 타입 힌트가 실제 응답에 섞임
+- ❌ **디버깅 어려움**: 이스케이프 처리로 가독성 저하
+
+**결론:** 파인튜닝된 모델에는 파인튜닝 패턴에 맞는 직접 작성한 단순 예시가 더 효과적
+
+#### 라우터 코드 수정
+```python
+# 기존 (문제 있음)
+from ..model.chatbot.LLM_chatbot_base_info_model import base_prompt, get_llm_response as get_base_info_llm_response, base_parser, escaped_format
+
+prompt = base_prompt.format(
+    location=location,
+    workType=workType,
+    category=category,
+    escaped_format=escaped_format
+)
+
+# 개선 후
+from ..model.chatbot.LLM_chatbot_base_info_model import base_prompt, get_llm_response as get_base_info_llm_response, base_parser
+
+prompt = base_prompt.format(
+    location=location,
+    workType=workType,
+    category=category
+)
+```
+
+## 2. JSON 파싱 로직 개선
+
+### 문제점
+- LLM 응답이 JSON 형식이 아닌 단일 문자열로 나오는 경우 발생
+- JSON 파싱 실패로 인한 `'str' object does not support item assignment` 에러 발생
+- vLLM 서버에서 예상과 다른 형태의 응답이 올 때 처리 불가능
+
+### 해결책
+**다층 예외 처리 및 안전한 파싱 로직 구현**:
+
+```python
+# JSON 파싱 시도
+try:
+    parsed_temp = json.loads(json_str)
+    # base_parser.parse() 안전하게 처리
+    try:
+        parsed_data = base_parser.parse(json.dumps(parsed_temp))
+    except Exception as parse_error:
+        logger.error(f"base_parser.parse() 실패: {str(parse_error)}")
+        # fallback: 기본 구조로 변환
+        if isinstance(parsed_temp, dict):
+            parsed_data = {
+                "recommend": parsed_temp.get("recommend", "챌린지를 추천합니다."),
+                "challenges": parsed_temp.get("challenges", [])
+            }
+        else:
+            # 완전한 fallback
+            parsed_data = {
+                "recommend": "챌린지를 추천합니다.",
+                "challenges": []
+            }
+    
+    # 카테고리 정보 추가
+    eng_label = label_mapping[category]
+    if isinstance(parsed_data, dict) and "challenges" in parsed_data:
+        for challenge in parsed_data["challenges"]:
+            challenge["category"] = eng_label
+
+except json.JSONDecodeError as json_error:
+    logger.error(f"JSON 파싱 실패: {str(json_error)}")
+    # JSON이 아닌 경우 fallback
+    parsed_data = {
+        "recommend": full_response.strip(),
+        "challenges": []
+    }
+```
+
+## 3. SSE 스트리밍에서 줄바꿈 문제 해결
+
+### 문제점
+- `base-info`에서 줄바꿈(`\n`)이 제대로 표시되지 않는 문제
+- `free-text`에서는 정상적으로 줄바꿈이 나오는데 `base-info`에서는 안 나옴
+
+### 원인 분석
+- 두 파일의 줄바꿈 처리 로직이 일치하지 않음
+- 특정 위치의 코드가 실행되지 않거나 다른 로직이 실행됨
+
+### 해결책
+**줄바꿈 처리 로직 통일**:
+
+```python
+# 한글과 영어 모두를 고려한 단어 구분자 (줄바꿈 포함)
+word_delimiters = [' ', '\t', '\n', '.', ',', '!', '?', ';', ':', '"', "'", '(', ')', '[', ']', '{', '}', '<', '>', '/', '|', '&', '*', '+', '-', '=', '_', '@', '#', '$', '%', '^', '~', '`', '은', '는', '이', '가', '을', '를', '의', '에', '에서', '로', '으로', '와', '과', '도', '만', '부터', '까지', '나', '든지', '라도', '라서', '고', '며', '거나', '든가', '든']
+
+# 토큰 정제에서 줄바꿈 추가 조건
+if cleaned_text.endswith(".") or cleaned_text.endswith("세요.") or cleaned_text.endswith("니다.") or "챌린지" in cleaned_text or cleaned_text.endswith("합니다"):
+    cleaned_text += '\n'
+
+# 최종 출력 전에 \n을 실제 줄바꿈으로 변환
+final_text = cleaned_text.replace('\\n', '\n')
+```
+
+## 4. 성능 개선 효과
+
+### 4.1. 안정성 향상
+- **JSON 구조 정규화**: `base-info`와 `free-text` 모두 동일한 명확한 JSON 구조 사용
+- **다층 예외 처리**: JSON 파싱 실패 시에도 안전한 fallback 제공
+- **일관된 응답 형식**: 성공/실패 모두 표준화된 응답 구조
+- **파인튜닝 호환성**: 학습된 패턴과 일치하는 프롬프트 구조
+
+### 4.2. 사용자 경험 개선
+- **올바른 JSON 구조**: `challenges` 배열이 문자열이 아닌 실제 객체 배열로 출력
+- **줄바꿈 정상 처리**: SSE 스트리밍에서 줄바꿈이 올바르게 표시
+- **한글 100% 출력**: 모든 응답이 한글로만 구성되어 일관성 향상
+- **파인튜닝 활용**: 학습된 패턴을 활용한 자연스러운 응답
+
+### 4.3. 디버깅 용이성
+- **상세한 에러 로깅**: 파싱 실패 시 원인 파악 용이
+- **fallback 로깅**: fallback 로직 실행 시 추적 가능
+- **프롬프트 단순화**: 복잡한 이스케이프 제거로 디버깅 용이
+- **파인튜닝 이해**: 모델 동작 원리 명확화
+
+## 5. 수정된 파일 목록
+
+### 5.1. base-info 모델 파일
+- **파일**: `Text/LLM/model/chatbot/LLM_chatbot_base_info_model.py`
+- **변경사항**: 
+  - `escaped_format` 변수 제거
+  - 프롬프트를 파인튜닝 패턴에 맞는 명확한 JSON 구조로 변경
+  - 안전한 JSON 파싱 로직 추가
+  - 줄바꿈 처리 로직 개선
+
+### 5.2. 라우터 파일
+- **파일**: `Text/LLM/router/chatbot_router.py`
+- **변경사항**:
+  - `escaped_format` import 제거
+  - `prompt.format()` 호출에서 `escaped_format` 파라미터 제거
+
+### 5.3. free-text 모델 파일
+- **파일**: `Text/LLM/model/chatbot/LLM_chatbot_free_text_model.py`
+- **변경사항**:
+  - 안전한 JSON 파싱 로직 추가 (base-info와 동일)
+  - 줄바꿈 처리 로직 통일
+
+## 6. 교훈 및 학습사항
+
+### 6.1. 파인튜닝과 프롬프트 엔지니어링
+- **교훈**: 파인튜닝된 모델은 학습된 패턴을 프롬프트 지시사항보다 우선함
+- **해결책**: 파인튜닝 데이터셋의 패턴을 분석하고 이에 맞는 프롬프트 설계
+- **권장사항**: 자동화된 스키마보다 직접 작성한 명확한 예시가 더 효과적
+
+### 6.2. LangChain 도구 사용 시 주의사항
+- **StructuredOutputParser**: 일반 모델에는 유용하지만 파인튜닝된 모델에는 부적합할 수 있음
+- **복잡성 vs 명확성**: 자동화된 복잡한 스키마보다 단순하고 명확한 예시가 더 효과적
+- **디버깅**: 문제 발생 시 자동 생성 코드보다 직접 작성 코드가 디버깅하기 쉬움
+
+### 6.3. 모델 동작 이해의 중요성
+- **파인튜닝 데이터 분석**: 모델이 어떤 패턴으로 학습했는지 이해 필수
+- **프롬프트 vs 학습**: 모델이 프롬프트와 학습 패턴 중 무엇을 우선하는지 파악
+- **디버깅 접근법**: 기술적 문제뿐만 아니라 모델 학습 패턴도 고려해야 함
+
+## 7. 현재 상태
+- `base-info`와 `free-text` 모두 올바른 JSON 구조로 응답 생성
+- 줄바꿈(`\n`)이 SSE 스트리밍에서 정상적으로 표시
+- JSON 파싱 실패 시에도 안전한 fallback 제공
+- 프롬프트가 파인튜닝 패턴과 일치하여 LLM 응답 품질 향상
+- 모든 출력이 한글 100%로 일관성 확보
+- escaped_format 제거로 코드 복잡성 감소 및 디버깅 용이성 향상
+
 ---
+
+## 8. 파인튜닝 모델 토크나이저 문제 해결 (2025-07-27)
+
+### 8.1. 문제 상황
+- **증상**: 파인튜닝 모델 응답이 완전히 깨짐
+- **예시 응답**: "다음과같은 Zero Waste챌린지를추천 dramabus99", "동기부^{+}", "바CHAR 매트랙"
+- **카테고리 오류**: 모든 챌린지가 잘못된 카테고리로 분류
+- **한글 토큰화 실패**: 의미불명한 문자열 생성
+
+### 8.2. 원인 분석
+#### 🔍 전체 상황 정리
+
+**1. Mistral 모델의 기본 특성**
+```
+기본 Mistral-7B-Instruct는 [INST] 태그 형식으로 설계됨:
+<s>[INST] 사용자 질문 [/INST] 모델 응답 </s>
+```
+
+**2. 우리 파인튜닝 데이터 형식 (v3, v4)**
+```json
+{
+  "instruction": "너는 피드백 어시스턴트야...",
+  "input": "JSON 입력",
+  "output": "한글 응답"
+}
+```
+**→ 순수 텍스트, [INST] 태그 없음**
+
+**3. 문제 발생 지점**
+```
+파인튜닝 학습 시:
+- 입력: "너는 친환경 챌린지 추천 챗봇이야..."
+- 출력: "{"recommend": "...", "challenges": [...]}"
+
+실제 vLLM 사용 시 (chat_template 적용):
+- 입력: "<s>[INST] 너는 친환경 챌린지 추천 챗봇이야... [/INST]"
+- 모델: "??? 이게 뭔 형식이지? 학습 때 본 적 없는데?"
+```
+
+**4. 해결책: chat_template 단순화**
+```python
+# 기존 (복잡한 Mistral Instruct 템플릿)
+"chat_template": "{% for message in messages %}{% if message['role'] == 'user' %}<s>[INST] {{ message['content'] }} [/INST]..."
+
+# 수정 후 (단순화)
+"chat_template": "{{ messages[0].content }}"
+```
+
+#### 상세 분석
+**Before (문제 상황):**
+```
+사용자 → "안녕하세요"
+vLLM → "<s>[INST] 안녕하세요 [/INST]" (자동 변환)
+파인튜닝 모델 → "이상한 형식이네... 학습 때 안 봤는데?" → 깨진 응답
+```
+
+**After (해결 후):**
+```
+사용자 → "안녕하세요"
+vLLM → "안녕하세요" (그대로 전달)
+파인튜닝 모델 → "아! 이 형식 알아! 학습 때 봤어!" → 정상 응답
+```
+
+#### 핵심 포인트
+1. **파인튜닝 데이터**: [INST] 태그 **없이** 학습
+2. **Mistral 기본**: [INST] 태그 **있어야** 정상 작동
+3. **우리 모델**: 파인튜닝으로 [INST] 태그 **없는** 형식에 특화됨
+4. **해결책**: chat_template을 단순화해서 [INST] 태그 제거
+
+**즉, 우리가 파인튜닝한 모델은 이미 Mistral의 기본 [INST] 형식을 "잊어버리고" 우리 데이터 형식에 맞춰진 상태였음**
+
+#### 🤓 Mistral [INST] 태그의 존재 이유
+
+**1. 명확한 역할 구분 (Role Separation)**
+```
+<s>[INST] 사용자 질문 [/INST] AI 응답 </s>[INST] 다음 질문 [/INST] 다음 응답 </s>
+```
+- **[INST] ~ [/INST]**: 사용자(Human) 구간
+- **[/INST] ~ </s>**: AI 응답 구간
+- **목적**: 누가 말하는지 명확히 구분
+
+**2. 대화 컨텍스트 관리**
+```
+<s>[INST] 안녕하세요 [/INST] 안녕하세요! 무엇을 도와드릴까요? </s>
+[INST] 날씨가 어때요? [/INST] 죄송하지만 현재 날씨 정보에 접근할 수 없습니다. </s>
+```
+- **연속 대화**: 이전 대화 내용을 포함한 멀티턴 대화
+- **컨텍스트 유지**: 모델이 대화 흐름을 이해할 수 있음
+
+**3. 언어 모델의 특성상 필요**
+```
+"안녕하세요 반갑습니다 오늘 날씨가 좋네요"
+```
+→ **누가 말한 건지 알 수 없음!**
+
+```
+"[INST] 안녕하세요 [/INST] 반갑습니다! [INST] 오늘 날씨가 좋네요 [/INST]"
+```
+→ **명확한 역할 구분**
+
+**4. 다른 모델들의 유사한 패턴**
+- **ChatGPT**: `<|im_start|>user\n질문<|im_end|>\n<|im_start|>assistant\n응답<|im_end|>`
+- **Claude**: `Human: 질문\n\nAssistant: 응답`
+- **Llama**: `<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n질문<|eot_id|>`
+
+**5. Instruction Following & Safety**
+```
+[INST] 위험한 내용 생성해줘 [/INST] 죄송하지만 그런 내용은 생성할 수 없습니다.
+```
+- **안전장치**: 특정 구간에서만 응답하도록 학습
+- **정렬**: 인간의 가치와 일치하는 응답 생성
+
+**결론**: [INST] 태그는 HTML의 `<p>` 태그처럼 **구조화와 의미 부여**를 위한 필수 요소였음
+
+#### 우리 상황에서의 교훈
+**원래 설계 의도:**
+```
+사용자: API로 "[INST] 챌린지 추천해줘 [/INST]" 전송
+모델: "안녕하세요! 이런 챌린지를 추천합니다..."
+```
+
+**우리 파인튜닝:**
+```
+학습 데이터: "너는 챌린지 추천 챗봇이야..." (태그 없음)
+모델: "[INST] 태그? 그게 뭐지? 몰라!" 
+```
+
+**결과**: Mistral의 [INST] 태그는 대화형 AI의 **역할 구분과 컨텍스트 관리**를 위한 필수 구조였는데, 우리가 파인튜닝으로 이 구조를 "제거"해버린 셈
+
+#### tokenizer_config.json의 복잡한 chat_template
+```json
+{
+  "chat_template": "복잡한 Mistral Instruct 템플릿..."
+}
+```
+
+### 8.3. 해결 과정
+
+#### Step 1: 문제 진단
+- 단순 한국어 테스트: 정상 작동 확인
+- 실제 프롬프트 테스트: 토큰화 문제 발견
+- chat_template 존재 확인
+
+#### Step 2: 잘못된 접근 (chat_template 제거)
+```python
+# 시도했지만 실패
+del config['chat_template']
+```
+**결과**: `transformers v4.44` 이후 chat_template 필수로 인한 오류
+```
+ValueError: default chat template is no longer allowed
+```
+
+#### Step 3: 올바른 해결책 (chat_template 단순화)
+```python
+# 성공한 해결책
+config['chat_template'] = '{{ messages[0].content }}'
+```
+
+### 8.4. 구체적 수정 작업
+
+#### 파일 위치
+```
+/home/wonwonfll/mistral_fintuned4/models--mistralai--Mistral-7B-Instruct-v0.3/snapshots/0d4b76e1efeb5eb6f6b5e757c79870472e04bd3a/tokenizer_config.json
+```
+
+#### 수정 명령어
+```bash
+# 백업 생성
+cp tokenizer_config.json tokenizer_config.json.backup
+
+# Python으로 수정
+python3 -c "
+import json
+with open('tokenizer_config.json.backup', 'r') as f:
+    config = json.load(f)
+config['chat_template'] = '{{ messages[0].content }}'
+with open('tokenizer_config.json', 'w') as f:
+    json.dump(config, f, indent=2)
+"
+```
+
+#### vLLM 서버 재시작
+```bash
+./stop_services.sh
+python3 -m vllm.entrypoints.openai.api_server \
+  --model /path/to/model \
+  --host 0.0.0.0 \
+  --port 8800 \
+  --gpu-memory-utilization 0.9 \
+  --max-model-len 20000 \
+  --max-num-seqs 64
+```
+
+### 8.5. 핵심 인사이트
+
+#### ResponseSchema vs 실제 사용 패턴
+- **발견**: ResponseSchema가 설정되어 있지만 실제로는 fallback 로직이 대부분 실행됨
+- **원인**: 파인튜닝 데이터와 LangChain 자동 생성 스키마 불일치
+- **결론**: 파인튜닝 모델에서는 단순한 프롬프트가 더 효과적
+
+#### Mistral 모델 특성과 파인튜닝
+- **기본 Mistral**: [INST] 태그 사용 설계
+- **파인튜닝 후**: 학습 데이터 패턴에 따라 달라짐
+- **교훈**: 파인튜닝 시 사용한 데이터 형식과 추론 시 형식이 일치해야 함
+
+#### chat_template의 중요성
+- **transformers v4.44+**: chat_template 필수
+- **해결책**: 제거가 아닌 단순화
+- **최종 형태**: `{{ messages[0].content }}` (순수 프롬프트 전달)
+
+### 8.6. 예상 결과
+수정 후 예상되는 개선 사항:
+1. **토큰화 정상화**: 한국어 텍스트 정상 처리
+2. **JSON 구조 안정화**: 올바른 recommend/challenges 구조
+3. **카테고리 정확성**: 올바른 카테고리 분류
+4. **응답 품질 향상**: 파인튜닝 학습 패턴과 일치
+
+### 8.7. 향후 고려사항
+
+#### 파인튜닝 데이터 개선
+- v4 데이터를 [INST] 형식으로 재생성 고려
+- 일관된 템플릿 사용으로 일반화 성능 향상
+
+#### 모니터링 포인트
+- 기본 Mistral 능력 유지 여부 확인
+- 다양한 프롬프트 패턴에 대한 강건성 테스트
+- 파인튜닝 성능과 일반화 성능 간 균형
+
+---
+# 2025-07-28 챗봇 카테고리 변경 로직 구현 및 수정
+
+## 1. 문제 상황
+- **증상**: free-text 챗봇에서 "플로깅 관련 챌린지 추천해주세요" 요청 시 카테고리가 변경되지 않음
+- **결과**: "플로깅" 키워드가 있음에도 불구하고 `"category": "ZERO_WASTE"`로 응답
+- **예상**: `"category": "PLOGGING"`으로 변경되어야 함
+
+## 2. 문제 분석 과정
+
+### 2.1. 초기 가설 - process_chat 함수 문제
+- **가설**: `LLM_chatbot_free_text_model.py`의 `process_chat` 함수에서 카테고리 변경 로직 부재
+- **조치**: `process_chat` 함수에 키워드 기반 카테고리 변경 로직 추가
+- **결과**: 여전히 작동하지 않음
+
+### 2.2. 실제 문제 발견 - 라우터에서 process_chat 미호출
+- **핵심 문제**: free-text 엔드포인트가 `process_chat` 함수를 호출하지 않음
+- **실제 동작**: 라우터(`chatbot_router.py`)에서 직접 처리
+- **증거**: 디버깅 로그 `🚀🚀🚀 FREE-TEXT PROCESS CHAT START 🚀🚀🚀`가 전혀 출력되지 않음
+
+### 2.3. 변수명 충돌 문제
+- **최종 문제**: 라우터에서 지역 변수 `category_keywords`가 import한 글로벌 변수를 덮어씀
+- **충돌 코드**:
+```python
+# 라우터 내부 (지역 변수)
+category_keywords = ["원래", "처음", "이전", "원래대로", "기존", "카테고리"]
+
+# constants.py에서 import한 글로벌 변수 (덮어써짐)
+from ..model.chatbot.chatbot_constants import category_keywords  # dict 타입
+```
+
+## 3. 해결 과정
+
+### 3.1. 카테고리별 키워드 매핑 정의
+`chatbot_constants.py`에 카테고리별 연관 키워드 추가:
+
+```python
+# 카테고리별 연관 키워드 매핑
+category_keywords = {
+    "제로웨이스트": ["제로웨이스트", "일회용", "플라스틱", "텀블러", "분리수거", "재활용", "쓰레기", "포장재"],
+    "플로깅": ["플로깅", "운동", "조깅", "러닝", "달리기", "걷기", "산책", "운동하면서", "뛰면서", "스포츠"],
+    "탄소발자국": ["탄소발자국", "탄소", "탄소중립", "온실가스", "기후변화", "대중교통", "자전거", "도보"],
+    "에너지 절약": ["에너지", "절약", "전기", "전력", "전등", "조명", "콘센트", "에어컨", "난방"],
+    "업사이클": ["업사이클", "재활용", "새활용", "DIY", "만들기", "창작", "재사용", "변형"],
+    "문화 공유": ["문화", "공유", "소셜", "SNS", "캠페인", "홍보", "공유하기", "알리기", "전파"],
+    "디지털 탄소": ["디지털", "온라인", "인터넷", "스마트폰", "컴퓨터", "전자기기", "클라우드", "데이터"],
+    "비건": ["비건", "채식", "식물성", "동물", "고기", "유제품", "채소", "과일", "식단"]
+}
+```
+
+### 9.3.2. 라우터에 카테고리 변경 로직 추가
+`chatbot_router.py`의 free-text 엔드포인트에 키워드 기반 카테고리 변경 로직 구현:
+
+```python
+# 1. 카테고리 변경 로직 (키워드 기반)
+current_category = conversation_states[sessionId].get("category", "제로웨이스트")
+message_lower = message.lower()
+
+# 카테고리 변경 검사
+category_changed = False
+for category, keywords in category_keywords.items():
+    if any(keyword in message_lower for keyword in keywords):
+        conversation_states[sessionId]["category"] = category
+        current_category = category
+        category_changed = True
+        break
+```
+
+### 3.3. 변수명 충돌 해결
+라우터의 지역 변수명을 변경하여 충돌 방지:
+
+```python
+# 기존 (충돌 발생)
+category_keywords = ["원래", "처음", "이전", "원래대로", "기존", "카테고리"]
+
+# 수정 (충돌 해결)
+category_reset_keywords = ["원래", "처음", "이전", "원래대로", "기존", "카테고리"]
+```
+
+### 3.4. 프롬프트 출력 형식 개선
+title에 번호를 붙이도록 프롬프트 수정:
+
+```python
+# 기존
+"title": "제로웨이스트 실천"
+
+# 수정
+"title": "1. 제로웨이스트 실천"
+```
+
+## 4. 수정된 파일 목록
+
+### 4.1. `Text/LLM/model/chatbot/chatbot_constants.py`
+- **추가**: `category_keywords` dict 정의
+- **목적**: 카테고리별 연관 키워드 매핑
+
+### 4.2. `Text/LLM/router/chatbot_router.py`
+- **추가**: `category_keywords` import
+- **추가**: 카테고리 변경 로직 구현
+- **수정**: 지역 변수명 `category_reset_keywords`로 변경
+
+### 4.3. `Text/LLM/model/chatbot/LLM_chatbot_free_text_model.py`
+- **추가**: 디버깅 로그 (실제로는 사용되지 않음)
+- **추가**: base_info_category 기본값 설정 로직
+- **수정**: 프롬프트 출력 예시에 번호 추가
+
+### 4.4. `Text/LLM/model/chatbot/LLM_chatbot_base_info_model.py`
+- **수정**: 프롬프트 출력 예시에 번호 추가
+
+## 5. 최종 결과
+- **성공**: "플로깅 관련 챌린지 추천해주세요" → `"category": "PLOGGING"`
+- **성공**: title에 번호 추가 → `"title": "1. 플로깅 시작하기"`
+- **성공**: 키워드 기반 실시간 카테고리 변경 가능
+
+##.6. 아키텍처 이해
+
+### 6.1. 실제 동작 흐름
+1. **클라이언트 요청** → `chatbot_router.py`
+2. **라우터에서 직접 처리** (process_chat 함수 미사용)
+3. **카테고리 변경 로직** → 라우터 내부에서 실행
+4. **RAG 검색** → 변경된 카테고리로 문서 검색
+5. **LLM 응답 생성** → 해당 카테고리 컨텍스트로 응답
+
+### 6.2. free-text의 독립성
+- **base-info 불필요**: free-text는 단독 실행 가능
+- **기본 카테고리**: "제로웨이스트"로 시작
+- **동적 변경**: 사용자 메시지 키워드에 따라 실시간 카테고리 변경
+
+# 2025-07-29 챗봇 temperature 지정
+
+### 1. 현재 temperature 인자가 설정되지 않아 기본값(보통 1.0)이 사용되고 있었음.
+
+```py
+# free-text 모델
+payload = {
+    "model": "...",
+    "messages": [{"role": "user", "content": prompt}],
+    "stream": True,
+    "max_tokens": 512
+    # temperature 없음 → 기본값 1.0 사용
+}
+
+# base-info 모델  
+payload = {
+    "model": "...",
+    "messages": [{"role": "user", "content": prompt}],
+    "stream": True,
+    "max_tokens": 2048
+    # temperature 없음 → 기본값 1.0 사용
+}
+```
+
+### 1.1.파인튜닝과 Temperature의 관계
+
+1.1.1. 파인튜닝은 모델의 "지식"을 바꿈
+- 특정 도메인(친환경 챌린지)에 대한 이해력 향상
+- 출력 형식과 스타일 학습
+1.1.2.Temperature는 추론 시의 "창의성"을 조절
+- 파인튜닝된 모델도 추론 시 temperature 설정 필요
+- 낮은 temperature: 일관된, 예측 가능한 응답
+- 높은 temperature: 다양한, 창의적인 응답
+
+### 1.2. 각 엔드포인트에 맞게 temperature 설정 추가
+```py
+    "max_tokens": 512,
+    "temperature": 0.7,
+    "do_sample": True
+```
+
+### 1.3. 설정한 Temperature 값의 의미
+1.3.1. free-text 모델: temperature=0.7
+- 자유로운 대화형 챌린지 추천
+- 적당한 창의성과 일관성의 균형
+- 다양한 표현과 스타일 허용
+1.3.2. base-info 모델: temperature=0.5
+- 구조화된 챌린지 추천
+- 더 일관된 형식과 내용
+- 예측 가능한 JSON 구조 유지
+
+
+### 추가 개선 사항
+#### do_sample=True도 추가함
+- do_sample=False: 항상 가장 확률이 높은 토큰 선택 (temperature 무시)
+- do_sample=True: temperature에 따라 확률적 샘플링
