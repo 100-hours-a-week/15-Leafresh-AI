@@ -7,10 +7,15 @@ import sys
 import os
 import uvicorn
 import threading
+import logging
 
 load_dotenv()
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(project_root)
+
+# 로깅 설정
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 from router.error_router import validation_exception_handler
 from router.error_router import http_exception_handler
@@ -30,14 +35,29 @@ from prometheus_client import start_http_server
 # 모니터링 미들웨어 import
 from router.monitoring_router import metrics_middleware
 
+# SQS 워커 import
+from model.feedback.sqs_feedback_worker import run_worker
+
 if __name__ == "__main__":
     
     from Text.Crawler.generate_challenge_docs import generate_challenge_docs
+    
+    logger.info("Leafresh AI 서버 시작 중...")
+    
     # 크롤러를 백그라운드에서 실행
-    threading.Thread(target=generate_challenge_docs, daemon=True).start()
+    logger.info("크롤러 백그라운드 실행 시작")
+    # threading.Thread(target=generate_challenge_docs, daemon=True).start()
+    
+    # SQS 피드백 워커를 백그라운드에서 실행
+    logger.info("SQS 피드백 워커 백그라운드 실행 시작")
+    threading.Thread(target=run_worker, daemon=True).start()
+    
     # 9104 포트에서 exporter 실행
+    logger.info("Prometheus 메트릭 서버 시작 (포트: 9104)")
     start_http_server(9104)
-    uvicorn.run("main:app", host="0.0.0.0", port=8000)
+    
+    logger.info("FastAPI 서버 시작 (포트: 8000)")
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
 
 # app 초기화
 app = FastAPI()
