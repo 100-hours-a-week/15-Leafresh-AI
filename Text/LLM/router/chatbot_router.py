@@ -1,7 +1,7 @@
 # chatbot_router.py
-from ..model.chatbot.LLM_chatbot_base_info_model import base_prompt, get_llm_response as get_base_info_llm_response, base_parser, escaped_format
+from ..model.chatbot.LLM_chatbot_base_info_model import base_prompt, get_llm_response as get_base_info_llm_response, base_parser
 from ..model.chatbot.LLM_chatbot_free_text_model import process_chat, clear_conversation, conversation_states, custom_prompt, get_llm_response as get_free_text_llm_response, retriever
-from ..model.chatbot.chatbot_constants import label_mapping, ENV_KEYWORDS, BAD_WORDS
+from ..model.chatbot.chatbot_constants import label_mapping, ENV_KEYWORDS, BAD_WORDS, category_keywords
 from fastapi import APIRouter, Query, HTTPException
 from fastapi.responses import JSONResponse
 from sse_starlette.sse import EventSourceResponse
@@ -85,12 +85,11 @@ async def select_category(
             }
         )
 
-    # LLM 호출을 위한 prompt 구성
+    # LLM 호출을 위한 prompt 구성 (단순화된 프롬프트)
     prompt = base_prompt.format(
         location=location,
         workType=workType,
-        category=category,
-        escaped_format=escaped_format
+        category=category
     )
 
     # SSE 응답 생성
@@ -218,8 +217,8 @@ async def freetext_rag(
         )
     message_lower = message.lower()
     # 카테고리 관련 요청 체크
-    category_keywords = ["원래", "처음", "이전", "원래대로", "기존", "카테고리"]
-    is_category_request = any(keyword in message_lower for keyword in category_keywords)
+    category_reset_keywords = ["원래", "처음", "이전", "원래대로", "기존", "카테고리"]
+    is_category_request = any(keyword in message_lower for keyword in category_reset_keywords)
     # 환경 관련 요청이 아니고, 카테고리 요청도 아닌 경우에만 기본 응답 (fallback 로직)
     is_env_related = any(k in message for k in ENV_KEYWORDS)
     contains_bad_words = any(b in message_lower for b in BAD_WORDS)
@@ -244,8 +243,34 @@ async def freetext_rag(
             }
             return # fallback 메시지 전송 후 종료
 
-        # 1. context 추출 (RAG)
+        # 1. 카테고리 변경 로직 (키워드 기반)
+        print(f"🚀FREE-TEXT ROUTER START 🚀")
+        print(f"User message: {message}")
+        print(f"Session ID: {sessionId}")
+        
         current_category = conversation_states[sessionId].get("category", "제로웨이스트")
+        message_lower = message.lower()
+        
+        # 카테고리 변경 검사
+        category_changed = False
+        print(f"🔍 키워드 검색 시작: '{message_lower}'")
+        print(f"🔥 category_keywords 타입: {type(category_keywords)}")
+        if isinstance(category_keywords, dict):
+            for category, keywords in category_keywords.items():
+                print(f"   - 카테고리 '{category}' 키워드 확인: {keywords}")
+                if any(keyword in message_lower for keyword in keywords):
+                    print(f"🎯 키워드 매칭 성공! '{category}' 카테고리로 변경")
+                    conversation_states[sessionId]["category"] = category
+                    current_category = category
+                    category_changed = True
+                    break
+        else:
+            print(f"category_keywords가 dict가 아님: {category_keywords}")
+        
+        if not category_changed:
+            print(f"❌ 키워드 매칭 실패. 기존 카테고리 '{current_category}' 유지")
+        
+        # 2. context 추출 (RAG)
         messages_history = "\n".join(conversation_states[sessionId]["messages"])
         
         # RAG 검색 수행
@@ -258,8 +283,7 @@ async def freetext_rag(
             context=context,  # RAG 활성화
             query=message,
             messages=messages_history,
-            category=current_category,
-            escaped_format=escaped_format
+            category=current_category
         )
 
         # LLM 응답 스트리밍
