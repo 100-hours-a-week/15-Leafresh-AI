@@ -19,7 +19,8 @@ router = APIRouter()
 # 모델 경로
 # GCP model_dir = "/home/ubuntu/hyperclovax_model/models--naver-hyperclovax--HyperCLOVAX-SEED-Text-Instruct-1.5B/snapshots/543a1be9d6233069842ffce73aa56a232a4f457b"
 # local model_dir = "./hyperclovax_model/models--naver-hyperclovax--HyperCLOVAX-SEED-Text-Instruct-1.5B/snapshots/543a1be9d6233069842ffce73aa56a232a4f457b"
-MODEL_PATH = "/home/ubuntu/hyperclovax_model/models--naver-hyperclovax--HyperCLOVAX-SEED-Text-Instruct-1.5B/snapshots/543a1be9d6233069842ffce73aa56a232a4f457b"
+# AWS model_dir = "/home/ubuntu/15-Leafresh-AI/Server1/hyperclovax_model/models--naver-hyperclovax--HyperCLOVAX-SEED-Text-Instruct-1.5B/snapshots/1ae9d346994979a4a1b58b7d312008dce449ba40"
+MODEL_PATH = "/home/ubuntu/15-Leafresh-AI/Server1/hyperclovax_model/models--naver-hyperclovax--HyperCLOVAX-SEED-Text-Instruct-1.5B/snapshots/1ae9d346994979a4a1b58b7d312008dce449ba40"
 MODEL_INSTANCE = None
 
 def init_model():
