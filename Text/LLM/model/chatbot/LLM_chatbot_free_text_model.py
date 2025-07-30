@@ -82,7 +82,7 @@ custom_prompt = PromptTemplate(
 
 중요한 요구사항:
 - 반드시 올바른 JSON 객체만 출력해
-- 모든 내용(recommend, title, description)은 반드시 한글로만 작성해
+- 모든 내용(recommend, title, description)은 반드시 한글 문장끝에는 "니다." 로만 작성해
 - 각 챌린지는 "title"과 "description" 필드만 포함해                         
 - title은 반드시 "1. ", "2. ", "3. " 형태로 번호를 붙여서 시작해
 - description은 한 문장으로 간결하게 작성해 주세요.
@@ -96,11 +96,11 @@ custom_prompt = PromptTemplate(
     "recommend": "사용자 상황에 맞는 한 문장 추천 텍스트",
 
     "challenges": [
-        {{"title": "첫번째 챌린지.",
+        {{"title": "첫번째 챌린지:",
          "description": "간단한 설명"}},
-        {{"title": "두번째 챌린지.",
+        {{"title": "두번째 챌린지:",
          "description": "간단한 설명"}},
-        {{"title": "세번째 챌린지.",
+        {{"title": "세번째 챌린지:",
          "description": "간단한 설명"}}
     ]
 }}
@@ -131,7 +131,7 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
     prev_token = None  # 이전 토큰 (숫자+점 조합 처리용)
     prev_prev_token = None  # 이전 이전 토큰 (숫자+점+공백 조합 처리용)
     # 한글과 영어 모두를 고려한 단어 구분자 (줄바꿈 포함)
-    word_delimiters = [' ', '\t', '\n', '.', ',', '!', '?', ';', ':', '"', "'", '(', ')', '[', ']', '{', '}', '<', '>', '/', '\\', '|', '&', '*', '+', '-', '=', '_', '@', '#', '$', '%', '^', '~', '`', '은', '는', '이', '가', '을', '를', '의', '에', '에서', '로', '으로', '와', '과', '도', '만', '부터', '까지', '나', '든지', '라도', '라서', '고', '며', '거나', '든가', '든']
+    word_delimiters = [' ', '\t', '\n', '.', ',', '!', '?', ';', ':', '"', "'", '(', ')', '[', ']', '{', '}', '<', '>', '/','~', '은', '는', '가', '을', '를', '의', '에서', '으로', '와', '과', '만', '부터', '까지','든지', '라도', '으로', '께서', '분들께', '고', '며', '면', '거나', '든가', '위해', '위한', '도시에서', '바닷가에서', '산에서', '농촌에서', '사무직', '현장직', '영업직', '재택근무']
 
     try:
         with httpx.stream("POST", url, json=payload, timeout=60.0) as response:
@@ -151,18 +151,24 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
 
                             # 토큰 버퍼에서 단어 단위로 분리하여 스트리밍
                             if any(delimiter in token_buffer for delimiter in word_delimiters):
-                                # Split token_buffer by delimiters and keep delimiters with the following word
+                                # 구분자 기준으로 token_buffer 나누기
                                 words = []
                                 current_word = ""
                                 i = 0
                                 while i < len(token_buffer):
                                     char = token_buffer[i]
-                                    # delimiter가 나오면 current_word를 words에 추가하고, delimiter부터 새 단어 시작
-                                    if char in word_delimiters:
+                                    # "."만 뒤에 단어와 함께 flush, 나머지 구분자는 앞에 단어와 함께 flush
+                                    if char == '.':
                                         if current_word:
                                             words.append(current_word)
                                             current_word = ""
-                                        current_word += char  # delimiter로 새 단어 시작
+                                        current_word += char  # "."로 새 단어 시작 (뒤에 단어와 함께)
+                                    elif char in word_delimiters:
+                                        if current_word:
+                                            words.append(current_word + char)  # 구분자를 앞에 단어와 함께
+                                            current_word = ""
+                                        else:
+                                            current_word += char  # 단독 구분자인 경우
                                     else:
                                         current_word += char
                                     i += 1 # 다음 문자로 이동
@@ -323,18 +329,24 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
 
                             # 토큰 버퍼에서 단어 단위로 분리하여 스트리밍
                             if any(delimiter in token_buffer for delimiter in word_delimiters):
-                                # Split token_buffer by delimiters and keep delimiters with the following word
+                                # Split token_buffer by delimiters
                                 words = []
                                 current_word = ""
                                 i = 0
                                 while i < len(token_buffer):
                                     char = token_buffer[i]
-                                    # If this is a delimiter, flush current_word and start a new one with the delimiter
-                                    if char in word_delimiters:
+                                    # "."만 뒤에 단어와 함께 flush, 나머지 구분자는 앞에 단어와 함께 flush
+                                    if char == '.':
                                         if current_word:
                                             words.append(current_word)
                                             current_word = ""
-                                        current_word += char  # Start new word with delimiter
+                                        current_word += char  # "."로 새 단어 시작 (뒤에 단어와 함께)
+                                    elif char in word_delimiters:
+                                        if current_word:
+                                            words.append(current_word + char)  # 구분자를 앞에 단어와 함께
+                                            current_word = ""
+                                        else:
+                                            current_word += char  # 단독 구분자인 경우
                                     else:
                                         current_word += char
                                     i += 1
