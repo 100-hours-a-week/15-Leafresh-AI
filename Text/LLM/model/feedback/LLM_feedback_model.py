@@ -35,7 +35,7 @@ class VLLMFeedbackClient:
         """
         headers = {"Content-Type": "application/json"}
         payload = {
-            "model": "/home/ubuntu/mistral_finetuned_v2/models--maclee123--leafresh_merged_v2/snapshots/d85fd2dc29d78338eb39002d765382c1ce8063f1",
+            "model": "/home/ubuntu/mistral_finetuned_v5/models--mistralai--Mistral-7B-Instruct-v0.3/snapshots/0d4b76e1efeb5eb6f6b5e757c79870472e04bd3a",
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens
