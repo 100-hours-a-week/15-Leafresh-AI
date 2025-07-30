@@ -741,3 +741,54 @@ message_id = publish_result(payload)  # SQS(결과 큐)로 직접 발행 또는 
 - 전체 데이터 흐름은 dict → json.dumps() → SQS → json.loads() → dict → vLLM(프롬프트) → 텍스트 응답 → dict로 래핑 → json.dumps() → SQS(또는 콜백)
 
 
+# 2025-07-30 AWS SQS 기반 피드백 비동기 처리 및 실전 운영 변경사항
+
+## 1. 주요 코드 구조 변경
+- FastAPI 서버에서 피드백 생성 요청을 받으면 SQS(요청 큐)에 메시지 발행
+- SQS 워커(`sqs_feedback_worker.py`)가 큐에서 메시지를 폴링하여 피드백 생성 및 결과 처리
+- 피드백 결과도 별도의 SQS(결과 큐)에 발행
+- 주요 파일:
+    - `router/feedback_router.py`: SQS로 피드백 요청 메시지 발행
+    - `model/feedback/sqs_feedback_worker.py`: SQS에서 메시지 폴링 및 피드백 생성/결과 발행
+    - `model/feedback/publisher_ai_to_be_aws.py`, `publisher_be_to_ai_aws.py`: SQS 발행 유틸
+
+
+## 2. FIFO 큐 사용 시 필수 파라미터 적용
+- SQS FIFO 큐(`.fifo`) 사용 시 **반드시 `MessageGroupId` 파라미터** 포함
+- 중복 제거를 위해 `MessageDeduplicationId`도 UUID로 자동 생성하여 포함
+- 예시:
+```python
+response = sqs.send_message(
+    QueueUrl=queue_url,
+    MessageBody=message_json,
+    MessageGroupId=str(data.get("memberId", "feedback")),
+    MessageDeduplicationId=str(uuid.uuid4())
+)
+```
+
+- 누락 시 `MissingParameter` 에러 발생
+
+
+## 3. 코드 예시 및 적용 포인트
+- FastAPI → SQS:
+```python
+message_json = json.dumps(request_data, ensure_ascii=False, default=str)
+sqs.send_message(
+    QueueUrl=queue_url,
+    MessageBody=message_json,
+    MessageGroupId="MessageId"
+)
+```
+- SQS 워커 → vLLM → 결과 SQS/콜백:
+```python
+data = json.loads(message['Body'])
+feedback_result = asyncio.run(feedback_model.generate_feedback(data))
+payload = {
+    "memberId": data.get("memberId"),
+    "content": feedback_result.get("data", {}).get("feedback", ""),
+    "status": "success",
+    "timestamp": data.get("timestamp"),
+    "requestId": data.get("requestId")
+}
+message_id = publish_result(payload)  # SQS(결과 큐)로 직접 발행 또는 콜백 URL로 POST
+```
