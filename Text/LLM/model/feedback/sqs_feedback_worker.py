@@ -13,9 +13,12 @@ logger = logging.getLogger(__name__)
 import boto3
 import os
 from dotenv import load_dotenv
-load_dotenv()
 print("AWS_ACCESS_KEY_ID_SERVER2:", os.getenv('AWS_ACCESS_KEY_ID_SERVER2'))
 print("AWS_SECRET_ACCESS_KEY_SERVER2:", os.getenv('AWS_SECRET_ACCESS_KEY_SERVER2'))
+print("AWS_DEFAULT_REGION_SERVER2:", os.getenv('AWS_DEFAULT_REGION_SERVER2', 'ap-northeast-2'))
+print("AWS_SQS_FEEDBACK_QUEUE_URL:", os.getenv('AWS_SQS_FEEDBACK_QUEUE_URL'))
+print("AWS_SQS_FEEDBACK_RESULT_QUEUE_URL:", os.getenv('AWS_SQS_FEEDBACK_RESULT_QUEUE_URL'))
+
 sqs = boto3.client(
     'sqs',
     aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID_SERVER2'),
@@ -50,8 +53,12 @@ def run_worker():
                             "requestId": data.get("requestId")
                         }
                         message_id = publish_result(payload)
-                        logger.info(f"[PUBLISH] 피드백 결과 발행 완료 (message ID: {message_id})")
-                        logger.info(f"[PUBLISH] Payload: {json.dumps(payload, ensure_ascii=False)}")
+                        if message_id:
+                            logger.info(f"[PUBLISH] 피드백 결과 발행 완료 (message ID: {message_id})")
+                            logger.info(f"[PUBLISH] Payload: {json.dumps(payload, ensure_ascii=False)}")
+                        else:
+                            logger.error(f"[PUBLISH] 피드백 결과 발행 실패")
+                            logger.error(f"[PUBLISH] Payload: {json.dumps(payload, ensure_ascii=False)}")
                     elif feedback_result and feedback_result.get("status") == 404:
                         logger.warning(f"[404] 피드백 요청을 찾을 수 없음: {feedback_result.get('message')}")
                         error_payload = {
@@ -62,8 +69,12 @@ def run_worker():
                             "requestId": data.get("requestId")
                         }
                         message_id = publish_result(error_payload)
-                        logger.warning(f"[PUBLISH] 404 오류 발행 (message ID: {message_id})")
-                        logger.warning(f"[PUBLISH] 404 Payload: {json.dumps(error_payload, ensure_ascii=False)}")
+                        if message_id:
+                            logger.warning(f"[PUBLISH] 404 오류 발행 (message ID: {message_id})")
+                            logger.warning(f"[PUBLISH] 404 Payload: {json.dumps(error_payload, ensure_ascii=False)}")
+                        else:
+                            logger.error(f"[PUBLISH] 404 오류 발행 실패")
+                            logger.error(f"[PUBLISH] 404 Payload: {json.dumps(error_payload, ensure_ascii=False)}")
                     else:
                         error_payload = {
                             "memberId": data.get("memberId"),
@@ -73,8 +84,12 @@ def run_worker():
                             "requestId": data.get("requestId")
                         }
                         message_id = publish_result(error_payload)
-                        logger.error(f"[PUBLISH] 피드백 오류 발행 (message ID: {message_id})")
-                        logger.error(f"[PUBLISH] Error Payload: {json.dumps(error_payload, ensure_ascii=False)}")
+                        if message_id:
+                            logger.error(f"[PUBLISH] 피드백 오류 발행 (message ID: {message_id})")
+                            logger.error(f"[PUBLISH] Error Payload: {json.dumps(error_payload, ensure_ascii=False)}")
+                        else:
+                            logger.error(f"[PUBLISH] 피드백 오류 발행 실패")
+                            logger.error(f"[PUBLISH] Error Payload: {json.dumps(error_payload, ensure_ascii=False)}")
                     # 메시지 삭제(ACK)
                     sqs.delete_message(
                         QueueUrl=queue_url,

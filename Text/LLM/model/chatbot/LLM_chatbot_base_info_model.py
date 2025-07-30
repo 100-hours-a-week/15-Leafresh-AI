@@ -70,11 +70,11 @@ base_prompt = PromptTemplate(
     {{
         "recommend": "이런 챌린지를 추천합니다.",
         "challenges": [
-            {{"title": "첫번째 챌린지",
+            {{"title": "첫번째 챌린지:",
              "description": "간단한 설명"}},
-            {{"title": "두번째 챌린지",
+            {{"title": "두번째 챌린지:",
              "description": "간단한 설명"}},
-            {{"title": "세번째 챌린지",
+            {{"title": "세번째 챌린지:",
              "description": "간단한 설명"}}
         ]
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
@@ -115,7 +115,7 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
     token_buffer = ""  # 토큰을 누적할 버퍼
     full_sentence = ""  # 누적 문장 버퍼 (추천문장 등 문장 단위 줄바꿈 플러시용)
     # 한글과 영어 모두를 고려한 단어 구분자 (줄바꿈 포함)
-    word_delimiters = [' ', '\t', '\n', '.', ',', '!', '?', ';', ':', '"', "'", '(', ')', '[', ']', '{', '}', '<', '>', '/','~', '은', '는', '이', '가', '을', '를','에', '의', '에서', '으로', '와', '과', '도', '만', '부터', '까지','든지', '라도', '라서', '께서', '들께', '고', '며', '면', '거나', '든가']
+    word_delimiters = [' ', '\t', '\n', '.', ',', '!', '?', ';', ':', '"', "'", '(', ')', '[', ']', '{', '}', '<', '>', '/','~', '은', '는', '가', '을', '를', '의', '에서', '으로', '와', '과', '만', '부터', '까지','든지', '라도', '으로', '께서', '분들께', '고', '며', '면', '거나', '든가', '위해', '위한', '도시에서', '바닷가에서', '산에서', '농촌에서', '사무직', '현장직', '영업직', '재택근무']
 
     try:
         with httpx.stream("POST", url, json=payload, timeout=60.0) as response:
@@ -138,18 +138,24 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
 
                             # 토큰 버퍼에서 단어 단위로 분리하여 스트리밍
                             if any(delimiter in token_buffer for delimiter in word_delimiters):
-                                # Split token_buffer by delimiters and keep delimiters with the following word
+                                # 구분자 기준으로 token_buffer 나누기
                                 words = []
                                 current_word = ""
                                 i = 0
                                 while i < len(token_buffer):
                                     char = token_buffer[i]
-                                    # delimiter가 나오면 current_word를 words에 추가하고, delimiter부터 새 단어 시작
-                                    if char in word_delimiters:
+                                    # "."만 뒤에 단어와 함께 flush, 나머지 구분자는 앞에 단어와 함께 flush
+                                    if char == '.':
                                         if current_word:
                                             words.append(current_word)
                                             current_word = ""
-                                        current_word += char  # delimiter로 새 단어 시작
+                                        current_word += char  # "."로 새 단어 시작 (뒤에 단어와 함께)
+                                    elif char in word_delimiters:
+                                        if current_word:
+                                            words.append(current_word + char)  # 구분자를 앞에 단어와 함께
+                                            current_word = ""
+                                        else:
+                                            current_word += char  # 단독 구분자인 경우
                                     else:
                                         current_word += char
                                     i += 1 # 다음 문자로 이동
@@ -263,18 +269,24 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
 
                             # 토큰 버퍼에서 단어 단위로 분리하여 스트리밍
                             if any(delimiter in token_buffer for delimiter in word_delimiters):
-                                # Split token_buffer by delimiters and keep delimiters with the following word
+                                # Split token_buffer by delimiters
                                 words = []
                                 current_word = ""
                                 i = 0
                                 while i < len(token_buffer):
                                     char = token_buffer[i]
-                                    # If this is a delimiter, flush current_word and start a new one with the delimiter
-                                    if char in word_delimiters:
+                                    # "."만 뒤에 단어와 함께 flush, 나머지 구분자는 앞에 단어와 함께 flush
+                                    if char == '.':
                                         if current_word:
                                             words.append(current_word)
                                             current_word = ""
-                                        current_word += char  # Start new word with delimiter
+                                        current_word += char  # "."로 새 단어 시작 (뒤에 단어와 함께)
+                                    elif char in word_delimiters:
+                                        if current_word:
+                                            words.append(current_word + char)  # 구분자를 앞에 단어와 함께
+                                            current_word = ""
+                                        else:
+                                            current_word += char  # 단독 구분자인 경우
                                     else:
                                         current_word += char
                                     i += 1
