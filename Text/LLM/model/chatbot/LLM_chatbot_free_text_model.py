@@ -80,15 +80,28 @@ custom_prompt = PromptTemplate(
 현재 카테고리: {category}
 사용자 질문: {query}
 
+중요한 요구사항:
+- 반드시 올바른 JSON 객체만 출력해
+- 모든 내용(recommend, title, description)은 반드시 한글로만 작성해
+- 각 챌린지는 "title"과 "description" 필드만 포함해                         
+- title은 반드시 "1. ", "2. ", "3. " 형태로 번호를 붙여서 시작해
+- description은 한 문장으로 간결하게 작성해 주세요.
+- 영어, 이모지, 특수문자는 사용하지 마
+
+
 출력 예시:
 ``` 
     ```json
 {{
     "recommend": "사용자 상황에 맞는 한 문장 추천 텍스트",
+
     "challenges": [
-        {{"title": "1. 첫번째 챌린지", "description": "간단한 설명"}},
-        {{"title": "2. 두번째 챌린지", "description": "간단한 설명"}},
-        {{"title": "3. 세번째 챌린지", "description": "간단한 설명"}}
+        {{"title": "첫번째 챌린지.",
+         "description": "간단한 설명"}},
+        {{"title": "두번째 챌린지.",
+         "description": "간단한 설명"}},
+        {{"title": "세번째 챌린지.",
+         "description": "간단한 설명"}}
     ]
 }}
     ```
@@ -103,7 +116,7 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
     logger.info(f"[vLLM 호출] 프롬프트 길이: {len(prompt)}")
     url = "http://localhost:8800/v1/chat/completions"
     payload = {
-        "model": "/home/wonwonfll/mistral_fintuned5/models--mistralai--Mistral-7B-Instruct-v0.3/snapshots/0d4b76e1efeb5eb6f6b5e757c79870472e04bd3a",
+        "model": "/home/ubuntu/mistral_finetuned_v5/models--mistralai--Mistral-7B-Instruct-v0.3/snapshots/0d4b76e1efeb5eb6f6b5e757c79870472e04bd3a",
         "messages": [{"role": "user", "content": prompt}],
         "stream": True,
         "max_tokens": 512,
@@ -113,6 +126,10 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
 
     response_completed = False  # 응답 완료 여부를 추적하는 플래그
     token_buffer = ""  # 토큰을 누적할 버퍼
+    # 누적 문장 버퍼 (추천문장 등 문장 단위 줄바꿈 플러시용)
+    full_sentence = ""
+    prev_token = None  # 이전 토큰 (숫자+점 조합 처리용)
+    prev_prev_token = None  # 이전 이전 토큰 (숫자+점+공백 조합 처리용)
     # 한글과 영어 모두를 고려한 단어 구분자 (줄바꿈 포함)
     word_delimiters = [' ', '\t', '\n', '.', ',', '!', '?', ';', ':', '"', "'", '(', ')', '[', ']', '{', '}', '<', '>', '/', '\\', '|', '&', '*', '+', '-', '=', '_', '@', '#', '$', '%', '^', '~', '`', '은', '는', '이', '가', '을', '를', '의', '에', '에서', '로', '으로', '와', '과', '도', '만', '부터', '까지', '나', '든지', '라도', '라서', '고', '며', '거나', '든가', '든']
 
@@ -134,29 +151,40 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
 
                             # 토큰 버퍼에서 단어 단위로 분리하여 스트리밍
                             if any(delimiter in token_buffer for delimiter in word_delimiters):
-                                # 단어 경계를 찾아서 분리
+                                # Split token_buffer by delimiters and keep delimiters with the following word
                                 words = []
                                 current_word = ""
-                                for char in token_buffer:
+                                i = 0
+                                while i < len(token_buffer):
+                                    char = token_buffer[i]
+                                    # delimiter가 나오면 current_word를 words에 추가하고, delimiter부터 새 단어 시작
                                     if char in word_delimiters:
                                         if current_word:
                                             words.append(current_word)
                                             current_word = ""
-                                        words.append(char)
+                                        current_word += char  # delimiter로 새 단어 시작
                                     else:
                                         current_word += char
-                                
+                                    i += 1 # 다음 문자로 이동
                                 if current_word:
                                     words.append(current_word)
-                                
-                                # 완성된 단어들만 스트리밍하고, 마지막 불완전한 단어는 버퍼에 유지
-                                if len(words) > 1:
-                                    # 마지막 단어가 불완전할 수 있으므로 제외
-                                    complete_words = words[:-1]
-                                    token_buffer = words[-1] if words else ""
-                                    
+
+                                # \n delimiter는 그대로 전송
+                                final_words = []
+                                for word in words:
+                                    if word.strip() == '\n':
+                                        final_words.append('\n')
+                                    else:
+                                        final_words.append(word)
+
+                                # 최종 단어 리스트가 1개 이상인 경우, 마지막 단어를 제외한 나머지 단어들을 처리
+                                if len(final_words) > 1:
+                                    complete_words = final_words[:-1]
+                                    token_buffer = final_words[-1] if final_words else ""
                                     for word in complete_words:
-                                        # \n 문자는 그대로 전송 (줄바꿈 처리)
+                                        # 번호 구분자가 앞에 있는 경우, 공백 삽입 (예: '1.챌린지' → '1. 챌린지')
+                                        word = re.sub(r"^(\d+\.)\s*(?=\S)", r"\1 ", word)
+                                        # \n 문자는 그대로 전송
                                         if word == '\n':
                                             yield {
                                                 "event": "challenge",
@@ -167,7 +195,54 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                                                 }, ensure_ascii=False)
                                             }
                                             continue
-                                        
+
+                                        # 숫자+점+공백 조합 처리
+                                        if (
+                                            prev_prev_token is not None and prev_prev_token.isdigit() and
+                                            prev_token is not None and re.match(r"^\.\s*$", prev_token) and
+                                            word == " "
+                                        ):
+                                            yield {
+                                                "event": "challenge",
+                                                "data": json.dumps({
+                                                    "status": 200,
+                                                    "message": "토큰 생성",
+                                                    "data": prev_prev_token + ". "
+                                                }, ensure_ascii=False)
+                                            }
+                                            prev_token = None
+                                            prev_prev_token = None
+                                            continue
+
+                                        # 숫자+점 조합 (공백 없음)
+                                        if prev_token is not None and prev_token.isdigit() and re.match(r"^\.\s*$", word):
+                                            yield {
+                                                "event": "challenge",
+                                                "data": json.dumps({
+                                                    "status": 200,
+                                                    "message": "토큰 생성",
+                                                    "data": prev_token + "."
+                                                }, ensure_ascii=False)
+                                            }
+                                            prev_token = None
+                                            continue
+
+                                        # 점만 있는 토큰 (선택적 공백/줄바꿈 포함) 무시
+                                        if re.match(r"^\.\s*$", word):
+                                            prev_prev_token = prev_token
+                                            prev_token = None
+                                            continue
+
+                                        # 숫자만 있는 토큰 버퍼링
+                                        if word.isdigit():
+                                            prev_prev_token = prev_token
+                                            prev_token = word
+                                            continue
+
+                                        # 다른 단어들에 대한 버퍼 시프트
+                                        prev_prev_token = prev_token
+                                        prev_token = word
+
                                         # 토큰 정제 - 순수 텍스트만 추출
                                         cleaned_text = word
                                         # JSON 관련 문자열 제거
@@ -177,8 +252,6 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                                         cleaned_text = re.sub(r'["\']', '', cleaned_text)  # 따옴표 제거
                                         cleaned_text = re.sub(r'[\[\]{}$]', '', cleaned_text)  # 괄호와 $ 제거
                                         cleaned_text = re.sub(r',\s*$', '', cleaned_text)  # 끝의 쉼표 제거
-                                        # 줄바꿈 보존: \n은 그대로 두고 다른 공백 문자만 제거
-                                        cleaned_text = re.sub(r'[ \t\r\f\v]+', ' ', cleaned_text)  # \n 제외 공백만 제거
                                         # 줄바꿈 보존: 이스케이프된 줄바꿈을 실제 줄바꿈으로 변환
                                         cleaned_text = cleaned_text.replace('\\\\n', '\n')  # 이중 이스케이프된 줄바꿈을 실제 줄바꿈으로 변환
                                         cleaned_text = cleaned_text.replace('\\n', '\n')  # 이스케이프된 줄바꿈을 실제 줄바꿈으로 변환
@@ -188,11 +261,8 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                                         cleaned_text = re.sub(r'\\(?!n)', '', cleaned_text)  # \n을 제외한 백슬래시 제거
                                         # 추가: 연속된 공백을 하나로 정리하되 줄바꿈은 보존
                                         cleaned_text = re.sub(r' +', ' ', cleaned_text)  # 공백만 정리
-                                        
+
                                         cleaned_text = cleaned_text.strip()
-                                        # base-info와 동일하게 불필요한 토큰 필터링
-                                        if re.fullmatch(r":\s*", cleaned_text) or cleaned_text in ["json", "recommend", "challenges", "title", "description"]:
-                                            continue
                                         if cleaned_text and cleaned_text.strip() not in ["", "``", "```"] and not response_completed:
                                             # 문자열 \n을 실제 줄바꿈으로 변환 처리
                                             if '\\n' in cleaned_text:
@@ -217,9 +287,15 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                                                             }, ensure_ascii=False)
                                                         }
                                             else:
-                                                # title 내용이 끝날 때 줄바꿈 추가 (번호.으로 끝나는 경우)
-                                                if cleaned_text.endswith(".") or cleaned_text.endswith("세요.") or cleaned_text.endswith("니다.") or "챌린지" in cleaned_text or cleaned_text.endswith("합니다"):
-                                                    cleaned_text += '\n'
+                                                # 줄바꿈 로직 개선: 추천 문장에 대해 두 줄, 일반 문장에 대해 한 줄
+                                                recommend_endings = ["추천합니다.", "추천드려요.", "추천해요.", "권장합니다."]
+                                                full_sentence += cleaned_text
+                                                if any(full_sentence.strip().endswith(ending) for ending in recommend_endings):
+                                                    cleaned_text += '\n\n'
+                                                    full_sentence = ""
+                                                elif cleaned_text.endswith(".") or cleaned_text.endswith("세요") or cleaned_text.endswith("니다") or cleaned_text.endswith("합니다"):
+                                                    cleaned_text += '\n\n'
+                                                    full_sentence = ""
                                                 # 최종 출력 전에 \n을 실제 줄바꿈으로 변환
                                                 final_text = cleaned_text.replace('\\n', '\n')
                                                 yield {
@@ -230,9 +306,6 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                                                         "data": final_text #단어 단위 출력
                                                     }, ensure_ascii=False)
                                                 }
-                                else:
-                                    # 단어가 하나뿐이면 버퍼에 유지
-                                    pass
                         except Exception as e:
                             logger.error(f"[vLLM 토큰 파싱 실패] {str(e)}")
                             continue
@@ -250,28 +323,38 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
 
                             # 토큰 버퍼에서 단어 단위로 분리하여 스트리밍
                             if any(delimiter in token_buffer for delimiter in word_delimiters):
-                                # 단어 경계를 찾아서 분리
+                                # Split token_buffer by delimiters and keep delimiters with the following word
                                 words = []
                                 current_word = ""
-                                for char in token_buffer:
+                                i = 0
+                                while i < len(token_buffer):
+                                    char = token_buffer[i]
+                                    # If this is a delimiter, flush current_word and start a new one with the delimiter
                                     if char in word_delimiters:
                                         if current_word:
                                             words.append(current_word)
                                             current_word = ""
-                                        words.append(char)
+                                        current_word += char  # Start new word with delimiter
                                     else:
                                         current_word += char
-                                
+                                    i += 1
                                 if current_word:
                                     words.append(current_word)
-                                
-                                # 완성된 단어들만 스트리밍하고, 마지막 불완전한 단어는 버퍼에 유지
-                                if len(words) > 1:
-                                    # 마지막 단어가 불완전할 수 있으므로 제외
-                                    complete_words = words[:-1]
-                                    token_buffer = words[-1] if words else ""
-                                    
+
+                                # For newline delimiters, keep them as standalone entries
+                                final_words = []
+                                for word in words:
+                                    if word.strip() == '\n':
+                                        final_words.append('\n')
+                                    else:
+                                        final_words.append(word)
+
+                                if len(final_words) > 1:
+                                    complete_words = final_words[:-1]
+                                    token_buffer = final_words[-1] if final_words else ""
                                     for word in complete_words:
+                                        # 번호 구분자가 앞에 있는 경우, 공백 삽입 (예: '1.챌린지' → '1. 챌린지')
+                                        word = re.sub(r"^(\d+\.)\s*(?=\S)", r"\1 ", word)
                                         # \n 문자는 그대로 전송 (줄바꿈 처리)
                                         if word == '\n':
                                             yield {
@@ -283,7 +366,54 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                                                 }, ensure_ascii=False)
                                             }
                                             continue
-                                        
+
+                                        # 숫자+점+공백 조합 처리
+                                        if (
+                                            prev_prev_token is not None and prev_prev_token.isdigit() and
+                                            prev_token is not None and re.match(r"^\.\s*$", prev_token) and
+                                            word == " "
+                                        ):
+                                            yield {
+                                                "event": "challenge",
+                                                "data": json.dumps({
+                                                    "status": 200,
+                                                    "message": "토큰 생성",
+                                                    "data": prev_prev_token + ". "
+                                                }, ensure_ascii=False)
+                                            }
+                                            prev_token = None
+                                            prev_prev_token = None
+                                            continue
+
+                                        # 숫자+점 조합 (공백 없음)
+                                        if prev_token is not None and prev_token.isdigit() and re.match(r"^\.\s*$", word):
+                                            yield {
+                                                "event": "challenge",
+                                                "data": json.dumps({
+                                                    "status": 200,
+                                                    "message": "토큰 생성",
+                                                    "data": prev_token + "."
+                                                }, ensure_ascii=False)
+                                            }
+                                            prev_token = None
+                                            continue
+
+                                        # 점만 있는 토큰 (선택적 공백/줄바꿈 포함) 무시
+                                        if re.match(r"^\.\s*$", word):
+                                            prev_prev_token = prev_token
+                                            prev_token = None
+                                            continue
+
+                                        # 숫자만 있는 토큰 버퍼링
+                                        if word.isdigit():
+                                            prev_prev_token = prev_token
+                                            prev_token = word
+                                            continue
+
+                                        # 다른 단어들에 대한 버퍼 시프트
+                                        prev_prev_token = prev_token
+                                        prev_token = word
+
                                         # 토큰 정제 - 순수 텍스트만 추출
                                         cleaned_text = word
                                         # JSON 관련 문자열 제거
@@ -295,62 +425,39 @@ def get_llm_response(prompt: str, category: str) -> Generator[Dict[str, Any], No
                                         cleaned_text = re.sub(r',\s*$', '', cleaned_text)  # 끝의 쉼표 제거
                                         # 줄바꿈 보존: \n은 그대로 두고 다른 공백 문자만 제거
                                         cleaned_text = re.sub(r'[ \t\r\f\v]+', ' ', cleaned_text)  # \n 제외 공백만 제거
-                                        # 줄바꿈 보존: 이스케이프된 줄바꿈을 실제 줄바꿈으로 변환
+                                        # 이스케이프된 문자들을 실제 문자로 변환
                                         cleaned_text = cleaned_text.replace('\\\\n', '\n')  # 이중 이스케이프된 줄바꿈을 실제 줄바꿈으로 변환
                                         cleaned_text = cleaned_text.replace('\\n', '\n')  # 이스케이프된 줄바꿈을 실제 줄바꿈으로 변환
-                                        # 줄바꿈이 아닌 백슬래시만 제거
-                                        cleaned_text = cleaned_text.replace('\\\\', '')  # 이중 백슬래시 제거 (줄바꿈 제외)
-                                        # \n을 제외한 다른 이스케이프 문자들만 제거
-                                        cleaned_text = re.sub(r'\\(?!n)', '', cleaned_text)  # \n을 제외한 백슬래시 제거
+                                        # 백슬래시 제거 (줄바꿈이 아닌 경우)
+                                        cleaned_text = cleaned_text.replace('\\\\', '')  # 이중 백슬래시 제거
+                                        cleaned_text = cleaned_text.replace('\\', '')  # 단일 백슬래시 제거
                                         # 추가: 연속된 공백을 하나로 정리하되 줄바꿈은 보존
                                         cleaned_text = re.sub(r' +', ' ', cleaned_text)  # 공백만 정리
-                                        
+
                                         cleaned_text = cleaned_text.strip()
-                                        # base-info와 동일하게 불필요한 토큰 필터링
+                                        # 콜론만 단독, 콜론+공백류, 콜론+줄바꿈 등도 필터링
                                         if re.fullmatch(r":\s*", cleaned_text) or cleaned_text in ["json", "recommend", "challenges", "title", "description"]:
                                             continue
                                         if cleaned_text and cleaned_text.strip() not in ["", "``", "```"] and not response_completed:
-                                            # 문자열 \n을 실제 줄바꿈으로 변환 처리
-                                            if '\\n' in cleaned_text:
-                                                parts = cleaned_text.split('\\n')
-                                                for i, part in enumerate(parts):
-                                                    if part.strip():
-                                                        yield {
-                                                            "event": "challenge",
-                                                            "data": json.dumps({
-                                                                "status": 200,
-                                                                "message": "토큰 생성",
-                                                                "data": part.strip()
-                                                            }, ensure_ascii=False)
-                                                        }
-                                                    if i < len(parts) - 1:  # 마지막이 아닌 경우 줄바꿈 추가
-                                                        yield {
-                                                            "event": "challenge",
-                                                            "data": json.dumps({
-                                                                "status": 200,
-                                                                "message": "토큰 생성",
-                                                                "data": "\n"
-                                                            }, ensure_ascii=False)
-                                                        }
-                                            else:
-                                                # title 내용이 끝날 때 줄바꿈 추가 (번호.으로 끝나는 경우)
-                                                # if cleaned_text.endswith(".") or cleaned_text.endswith("세요.") or cleaned_text.endswith("니다.") or "챌린지" in cleaned_text or cleaned_text.endswith("합니다"):
-                                                # 문장 끝에 .으로 끝나는 경우
-                                                if cleaned_text.endswith("."):
-                                                    cleaned_text += '\n'
-                                                # 최종 출력 전에 \n을 실제 줄바꿈으로 변환
-                                                final_text = cleaned_text.replace('\\n', '\n')
-                                                yield {
-                                                    "event": "challenge",
-                                                    "data": json.dumps({
-                                                        "status": 200,
-                                                        "message": "토큰 생성",
-                                                        "data": final_text #단어 단위 출력
-                                                    }, ensure_ascii=False)
-                                                }
-                                else:
-                                    # 단어가 하나뿐이면 버퍼에 유지
-                                    pass
+                                            # 줄바꿈 로직 개선: 추천 문장에 대해 두 줄, 일반 문장에 대해 한 줄
+                                            recommend_endings = ["추천합니다.", "추천드려요.", "추천해요.", "권장합니다."]
+                                            full_sentence += cleaned_text
+                                            if any(full_sentence.strip().endswith(ending) for ending in recommend_endings):
+                                                cleaned_text += '\n\n'
+                                                full_sentence = ""
+                                            elif cleaned_text.endswith(".") or cleaned_text.endswith("세요") or cleaned_text.endswith("니다") or cleaned_text.endswith("합니다"):
+                                                cleaned_text += '\n\n'
+                                                full_sentence = ""
+                                            # 최종 출력 전에 \n을 실제 줄바꿈으로 변환
+                                            final_text = cleaned_text.replace('\\n', '\n')
+                                            yield {
+                                                "event": "challenge",
+                                                "data": json.dumps({
+                                                    "status": 200,
+                                                    "message": "토큰 생성",
+                                                    "data": final_text
+                                                }, ensure_ascii=False)
+                                            }
                         except Exception as e:
                             logger.error(f"[vLLM 토큰 파싱 실패] {str(e)}")
                             continue

@@ -1220,7 +1220,7 @@ logger.error(f"응답 파싱 중 에러 발생: {str(e)}")
 ```python
 # 기존 구조 (문제 있음)
 # LLM_chatbot_base_info_model.py: 모델 로드 (4GB)
-# LLM_chatbot_free_text_model.py: 모델 로드 (4GB)  
+# LLM_chatbot_free_text_model.py: 또 다른 모델 로드 (4GB)
 # LLM_feedback_model.py: 또 다른 모델 로드 (4GB)
 # 총 12GB 사용
 ```
@@ -2748,8 +2748,7 @@ vLLM → "안녕하세요" (그대로 전달)
 del config['chat_template']
 ```
 **결과**: `transformers v4.44` 이후 chat_template 필수로 인한 오류
-```
-ValueError: default chat template is no longer allowed
+```ValueError: default chat template is no longer allowed
 ```
 
 #### Step 3: 올바른 해결책 (chat_template 단순화)
@@ -3012,3 +3011,193 @@ payload = {
 #### do_sample=True도 추가함
 - do_sample=False: 항상 가장 확률이 높은 토큰 선택 (temperature 무시)
 - do_sample=True: temperature에 따라 확률적 샘플링
+```
+
+# 2025-07-30 챗봇 줄바꿈 및 토큰화 개선
+
+## 1. 문제 상황
+
+### 1.1. 로그에서 줄바꿈 문자 표시 문제
+- **문제**: `\n` 문자가 로그에 실제 줄바꿈으로 표시되어 가독성 저하
+- **원인**: Python `logging` 모듈이 `\n`을 실제 줄바꿈으로 해석
+- **해결**: `repr()` 또는 `replace('\n', '\\n')` 사용하여 문자 그대로 표시
+
+### 1.2. 챗봇 응답의 줄바꿈 문제들
+- **문제 1**: 숫자 뒤에 `.\n`이 나타나는 문제 (예: "1.\n")
+- **문제 2**: "1. Challenge Name" 형태로 숫자와 텍스트 사이 줄바꿈 없이 출력 필요
+- **문제 3**: 모든 문장 끝에 이중 줄바꿈(`\n\n`) 필요
+- **문제 4**: 문장 중간에 "챌린지" 키워드가 있을 때 불필요한 줄바꿈 발생
+
+## 2. LLM 토큰화 이해
+
+### 2.1. LLM 토큰화 방식
+- **세분화**: "1. 챌린지" → "1", ".", " ", "챌린지"로 분리
+- **버퍼링**: `token_buffer`에 토큰을 누적하여 처리
+- **후처리**: 원시 토큰을 원하는 형태로 재조합
+
+### 2.2. 토큰 처리 로직
+```python
+# 토큰 버퍼링 및 단어 분리
+word_delimiters = [' ', '\t', '\n', '.', ',', '!', '?', ';', ':', '"', "'", '(', ')', '[', ']', '{', '}', '<', '>', '/', '~', '은', '는', '이', '가', '을', '를', '에', '의', '에서', '으로', '와', '과', '도', '만', '부터', '까지', '든지', '라도', '라서', '께서', '들께', '고', '며', '면', '거나', '든가']
+
+# 숫자+점 조합 처리
+prev_token = None
+prev_prev_token = None
+```
+
+## 3. 해결 과정
+
+### 3.1. 숫자+점 조합 처리
+```python
+# 숫자+점+공백 조합 처리
+if (
+    prev_prev_token is not None and prev_prev_token.isdigit() and
+    prev_token is not None and re.match(r"^\.\s*$", prev_token) and
+    word == " "
+):
+    yield {
+        "event": "challenge",
+        "data": json.dumps({
+            "status": 200,
+            "message": "토큰 생성",
+            "data": prev_prev_token + ". "
+        }, ensure_ascii=False)
+    }
+    prev_token = None
+    prev_prev_token = None
+    continue
+
+# 숫자+점 조합 (공백 없음)
+if prev_token is not None and prev_token.isdigit() and re.match(r"^\.\s*$", word):
+    yield {
+        "event": "challenge",
+        "data": json.dumps({
+            "status": 200,
+            "message": "토큰 생성",
+            "data": prev_token + "."
+        }, ensure_ascii=False)
+    }
+    prev_token = None
+    continue
+```
+
+### 3.2. 명시적 줄바꿈 처리
+```python
+# \n 문자는 그대로 전송
+if word == '\n':
+    yield {
+        "event": "challenge",
+        "data": json.dumps({
+            "status": 200,
+            "message": "토큰 생성",
+            "data": "\n"
+        }, ensure_ascii=False)
+    }
+    continue
+```
+
+### 3.3. 문장 끝 감지 및 이중 줄바꿈
+```python
+# 줄바꿈 로직 개선: 추천 문장에 대해 두 줄, 일반 문장에 대해 한 줄
+recommend_endings = ["추천합니다.", "추천드려요.", "추천해요.", "권장합니다."]
+full_sentence += cleaned_text
+if any(full_sentence.strip().endswith(ending) for ending in recommend_endings):
+    cleaned_text += '\n\n'
+    full_sentence = ""
+elif cleaned_text.endswith(".") or cleaned_text.endswith("세요") or cleaned_text.endswith("니다") or cleaned_text.endswith("합니다"):
+    cleaned_text += '\n\n'
+    full_sentence = ""
+```
+
+### 3.4. "챌린지" 키워드 제거
+- **기존**: `"챌린지" in cleaned_text` 조건으로 인한 중간 줄바꿈
+- **수정**: 해당 조건 제거하여 문장 중간 줄바꿈 방지
+
+## 4. 환경 키워드 및 Fallback 로직 개선
+
+### 4.1. ENV_KEYWORDS 확장
+```python
+ENV_KEYWORDS = [
+    "환경", "지구", "에코", "제로웨이스트", "탄소", "분리수거", "플라스틱", "텀블러", "기후", "친환경",
+    "일회용", "미세먼지", "재활용", "자원", "대중교통", "도보", "비건", "탄소중립", "그린", "에너지",
+    "쓰레기", "아무", "추천", "챌린지", "도움", "도와줘", "자세히", "상세히", "아무거나", "무엇", "뭐",
+    "업사이클", "플로깅", "에너지절약", "문화공유", "디지털탄소", "새활용", "DIY", "만들기", "창작", "재사용", "변형"
+]
+```
+
+### 4.2. Fallback 조건 통합
+```python
+# fallback 조건 검사 (환경 관련이 아니거나 비속어가 포함된 경우)
+if not is_category_request and (not is_env_related or contains_bad_words):
+    logger.info(f"Fallback triggered: {message}")
+    yield {
+        "event": "error",
+        "data": json.dumps({
+            "status": 200,
+            "message": "저는 친환경 챌린지를 추천해드리는 Leafresh 챗봇이에요! 환경 관련 질문을 해주시면 더 잘 도와드릴 수 있어요.",
+            "data": None
+        }, ensure_ascii=False)
+    }
+    return
+```
+
+## 5. 수정된 파일 목록
+
+### 5.1. `Text/LLM/model/chatbot/LLM_chatbot_base_info_model.py`
+- **추가**: `prev_token`, `prev_prev_token`, `full_sentence` 변수
+- **추가**: 숫자+점 조합 처리 로직
+- **추가**: 명시적 줄바꿈 처리
+- **수정**: 문장 끝 감지 로직 개선
+- **제거**: `"챌린지" in cleaned_text` 조건
+
+### 5.2. `Text/LLM/model/chatbot/LLM_chatbot_free_text_model.py`
+- **추가**: `prev_token`, `prev_prev_token`, `full_sentence` 변수
+- **추가**: 숫자+점 조합 처리 로직
+- **추가**: 명시적 줄바꿈 처리
+- **수정**: 문장 끝 감지 로직 개선
+- **제거**: `"챌린지" in cleaned_text` 조건
+
+### 5.3. `Text/LLM/model/chatbot/chatbot_constants.py`
+- **추가**: 환경 관련 키워드 확장
+- **추가**: "업사이클", "플로깅", "에너지절약", "문화공유", "디지털탄소", "새활용", "DIY", "만들기", "창작", "재사용", "변형"
+
+### 5.4. `Text/LLM/router/chatbot_router.py`
+- **수정**: Fallback 조건 통합
+- **수정**: 비속어 체크와 환경 관련 체크를 하나의 조건으로 통합
+
+## 6. 최종 결과
+
+### 6.1. 줄바꿈 개선
+- **성공**: "1. 챌린지 추천" 형태로 숫자와 텍스트 사이 줄바꿈 없이 출력
+- **성공**: 모든 문장 끝에 이중 줄바꿈(`\n\n`) 적용
+- **성공**: 문장 중간 "챌린지" 키워드로 인한 불필요한 줄바꿈 제거
+
+### 6.2. 환경 키워드 인식
+- **성공**: "업사이클 해줘" → 환경 관련 키워드로 인식하여 정상 처리
+- **성공**: Fallback 로직 개선으로 적절한 응답 제공
+
+### 6.3. 토큰화 이해
+- **성공**: LLM의 세분화된 토큰화 방식 이해
+- **성공**: 후처리 로직을 통한 원하는 출력 형태 구현
+- **성공**: 버퍼링과 상태 관리를 통한 정확한 패턴 감지
+
+## 7. 아키텍처 개선
+
+### 7.1. 토큰 처리 흐름
+1. **LLM 토큰 생성** → 세분화된 토큰들
+2. **토큰 버퍼링** → `token_buffer`에 누적
+3. **단어 분리** → `word_delimiters` 기준으로 분리
+4. **패턴 감지** → 숫자+점, 줄바꿈 등 특수 패턴 처리
+5. **후처리** → 정제 및 줄바꿈 로직 적용
+6. **스트리밍** → 클라이언트에 전송
+
+### 7.2. 상태 관리
+- **`prev_token`**: 이전 토큰 저장
+- **`prev_prev_token`**: 이전 이전 토큰 저장
+- **`full_sentence`**: 문장 누적 버퍼
+- **`token_buffer`**: 토큰 누적 버퍼
+
+### 7.3. 일관성 보장
+- **base-info와 free-text**: 동일한 토큰 처리 로직 적용
+- **줄바꿈 규칙**: 모든 문장 끝에 이중 줄바꿈
+- **패턴 처리**: 숫자+점 조합의 일관된 처리

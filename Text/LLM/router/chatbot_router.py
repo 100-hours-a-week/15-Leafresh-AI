@@ -230,7 +230,7 @@ async def freetext_rag(
                 "category": "제로웨이스트", # 기본값
                 "base_category": "제로웨이스트"
             }
-        # fallback 조건 검사
+        # fallback 조건 검사 (환경 관련이 아니거나 비속어가 포함된 경우)
         if not is_category_request and (not is_env_related or contains_bad_words):
             logger.info(f"Fallback triggered: {message}")
             yield {
