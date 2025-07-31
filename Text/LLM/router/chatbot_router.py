@@ -106,7 +106,7 @@ async def select_category(
             # 전체 응답 텍스트를 누적하기 위한 변수
             eng_label = label_mapping[category]
 
-            for data_payload in get_base_info_llm_response(prompt, category=category):
+            for data_payload in get_base_info_llm_response(prompt, category):
                 try:
                     event_type = data_payload.get("event")
                     data_from_llm_model = data_payload.get("data")
@@ -243,39 +243,41 @@ async def freetext_rag(
             }
             return # fallback 메시지 전송 후 종료
 
-        # 1. 카테고리 변경 로직 (키워드 기반)
-        print(f"🚀FREE-TEXT ROUTER START 🚀")
-        print(f"User message: {message}")
-        print(f"Session ID: {sessionId}")
-        
+        # 문장에서 가장 먼저 등장한 키워드를 기준으로 카테고리를 선택 (정규표현식 기반)
+        import re  # ensure re is imported at top, but harmless to repeat
+        min_pos = float('inf')
+        selected_category = None
+        for category, keywords in category_keywords.items():
+            for keyword in keywords:
+                match = re.search(re.escape(keyword), message)
+                if match and match.start() < min_pos:
+                    min_pos = match.start()
+                    selected_category = category
         current_category = conversation_states[sessionId].get("category", "제로웨이스트")
         message_lower = message.lower()
-        
-        # 카테고리 변경 검사
         category_changed = False
-        print(f"🔍 키워드 검색 시작: '{message_lower}'")
-        print(f"🔥 category_keywords 타입: {type(category_keywords)}")
-        if isinstance(category_keywords, dict):
-            for category, keywords in category_keywords.items():
-                print(f"   - 카테고리 '{category}' 키워드 확인: {keywords}")
-                if any(keyword in message_lower for keyword in keywords):
-                    print(f"🎯 키워드 매칭 성공! '{category}' 카테고리로 변경")
-                    conversation_states[sessionId]["category"] = category
-                    current_category = category
-                    category_changed = True
-                    break
-        else:
-            print(f"category_keywords가 dict가 아님: {category_keywords}")
-        
-        if not category_changed:
-            print(f"❌ 키워드 매칭 실패. 기존 카테고리 '{current_category}' 유지")
+        if selected_category:
+            conversation_states[sessionId]["category"] = selected_category
+            current_category = selected_category
+            category_changed = True
         
         # 2. context 추출 (RAG)
-        messages_history = "\n".join(conversation_states[sessionId]["messages"])
-        
-        # RAG 검색 수행
+        # 📌 프롬프트 생성 전, 사용자 정보(location, workType)를 포함한 메시지 기록 구성
+        location = conversation_states[sessionId].get("location", "")
+        workType = conversation_states[sessionId].get("workType", "")
+
+        # 최근 3턴(6개 메시지)만 유지
+        recent_messages = conversation_states[sessionId]["messages"][-6:]  # 최근 3턴만 유지하여 프롬프트 길이 제한
+        messages_history = f"사용자 위치: {location}\n사용자 직업: {workType}\n"
+        messages_history += "\n".join(
+            [f"{msg['role']}: {msg['content']}" for msg in recent_messages]
+        )
+
+        # Set current context and category from retriever and conversation_states
         docs = retriever.get_relevant_documents(message)
         context = "\n".join([doc.page_content for doc in docs])
+        current_category = conversation_states[sessionId]["category"]
+
         logger.info(f"RAG 검색 완료. 문서 수: {len(docs)}")
         logger.info(f"컨텍스트 길이: {len(context)}")
 
@@ -289,7 +291,11 @@ async def freetext_rag(
         # LLM 응답 스트리밍
         try:
             full_response_text = ""
-            for data_payload in get_free_text_llm_response(prompt, current_category):
+            for data_payload in process_chat(
+                sessionId=sessionId,
+                query=message,
+                base_info_category=current_category
+            ):
                 event_type = data_payload.get("event")
                 data_from_llm_model = data_payload.get("data")
 
@@ -317,15 +323,24 @@ async def freetext_rag(
                 elif event_type == "close":
                     # 대화 기록 업데이트 (LLM 최종 응답 전체를 저장)
                     if sessionId in conversation_states:
-                        conversation_states[sessionId]["messages"].append(f"AI: {full_response_text}")
+                        conversation_states[sessionId]["messages"].append({
+                            "role": "assistant",
+                            "content": full_response_text
+                        })
 
-                    # 최종 응답 데이터 전송
+                    # 최종 추천된 챌린지 목록에 현재 카테고리의 영문 라벨을 추가
+                    final_data = parsed_data_payload.get("data", None)
+                    eng_label = label_mapping.get(current_category, "etc")
+                    if final_data and "challenges" in final_data:
+                        for challenge in final_data["challenges"]:
+                            challenge["category"] = eng_label
+
                     yield {
                         "event": "close",
                         "data": json.dumps({
                             "status": 200,
                             "message": "모든 챌린지 추천 완료",
-                            "data": parsed_data_payload.get("data", None)
+                            "data": final_data
                         }, ensure_ascii=False)
                     }
                     return
@@ -364,9 +379,3 @@ async def event_generator_error(message: str, status_code: int):
             "data": None
         }, ensure_ascii=False)
     }
-
-# 명령어 예시 (vllm 모델 실행)
-# python3 -m vllm.entrypoints.openai.api_server \
-#   --model /home/ubuntu/mistral/models--mistralai--Mistral-7B-Instruct-v0.3/snapshots/e0bc86c23ce5aae1db576c8cca6f06f1f73af2db \
-#   --host 0.0.0.0 \
-#   --port 8800
