@@ -65,6 +65,7 @@ xxhash==3.5.0
 zstandard==0.23.0
 
 # === Google Cloud 연동 ===
+google-generativeai
 google-api-core==2.24.2
 google-api-python-client==2.124.0
 google-auth==2.29.0

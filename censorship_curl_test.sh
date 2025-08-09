@@ -1,5 +1,5 @@
 
-curl -X POST http://localhost:8000/ai/challenges/group/validation \
+curl -X POST http://localhost:7000/ai/challenges/group/validation \
   -H "Content-Type: application/json" \
   -d '{
     "memberId": 12345,

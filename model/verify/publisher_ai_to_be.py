@@ -1,20 +1,26 @@
-from google.cloud import pubsub_v1
-import json, os
-
+import boto3, json, os
 from dotenv import load_dotenv
 
 load_dotenv()
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 
-project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
-topic_id = os.getenv("PUBSUB_TOPIC_AI_TO_BE_PROD")
+# SQS 클라이언트 초기화
+sqs = boto3.client("sqs",
+                   aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+                   aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+                   region_name=os.getenv("AWS_DEFAULT_REGION"))
 
-publisher = pubsub_v1.PublisherClient()
-topic_path = publisher.topic_path(project_id, topic_id)
+verify_queue_url = os.getenv("AWS_SQS_OUTPUT_QUEUE_URL")
 
 def publish_result(data: dict):
-    message_json = json.dumps(data)
-    future = publisher.publish(topic_path, message_json.encode("utf-8"))
+    try:
+        message_json = json.dumps(data)
+        response = sqs.send_message(QueueUrl = verify_queue_url, MessageBody = message_json, MessageGroupId="image-verification")
 
-    print("AI -> BE : publich_message 발행됨 : ", data)
-    return future.result()
+        message_id = response["MessageId"]
+        print("[PUB] AI -> BE : SQS 메시지 발행됨 :", data)
+        print("[PUB] AI -> BE : SQS 메시지 ID :", message_id)
+        return message_id
+
+    except Exception as e:
+        print("[ERROR] AI -> BE : SQS 메시지 발행 실패 :", e)
+        return None

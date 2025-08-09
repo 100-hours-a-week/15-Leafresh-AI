@@ -1,65 +1,90 @@
-from google.cloud import pubsub_v1
+import boto3, json, os, time
+from dotenv import load_dotenv
+
 from model.verify.LLM_verify_model import ImageVerifyModel
 from model.verify.publisher_ai_to_be import publish_result
-import json
-import requests
-
-from dotenv import load_dotenv
-import os
 
 load_dotenv()
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 
-project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
-subscription_id = os.getenv("PUBSUB_SUBSCRIPTION_BE_TO_AI_PROD")
+# SQS 클라이언트 초기화
+sqs = boto3.client("sqs",
+                   aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+                   aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+                   region_name=os.getenv("AWS_DEFAULT_REGION"))
 
-subscription_path = f"projects/{project_id}/subscriptions/{subscription_id}"
+verify_queue_url = os.getenv("AWS_SQS_INPUT_QUEUE_URL")
+bucket_name = os.getenv("AWS_S3_BUCKET_NAME")
 
-subscriber = pubsub_v1.SubscriberClient()
 verifier = ImageVerifyModel()
 
+
+# SQS 메시지 처리 및 결과 발행 
+def process_message(data: dict):
+    try:
+        blob_name = data["imageUrl"].split("/")[-1]
+        challenge_type = data["type"]
+        challenge_id = int(data["challengeId"])
+        challenge_name = data["challengeName"]
+        challenge_info = data["challengeInfo"]
+
+        result = verifier.image_verify(bucket_name, blob_name, challenge_type, challenge_id, challenge_name, challenge_info)
+
+        print(f"인증 결과: {result}")
+
+        # '예' 여부가 정확히 일치할 때만 True
+        is_verified = "예" in result.strip().lower()
+
+        # 결과 콜백 전송
+        payload = {
+            "type": data["type"],
+            "memberId": data["memberId"],
+            "challengeId": data["challengeId"],
+            "verificationId": data["verificationId"],
+            "date": data["date"],
+            "result": is_verified
+        }
+
+        message_id = publish_result(payload)
+
+        print(f"[PUB] 인증 결과 발행 완료 (message ID: {message_id})")
+        print(f"[PUB] Payload: {json.dumps(payload, ensure_ascii=False)}")
+    except Exception as e:
+        print(f"[ERROR] 메시지 처리 실패: {e}")
+        raise
+
+
 def run_worker():
-    def callback(message):
-        print("[CALLBACK] 메시지 수신됨", message)
+    print(f"[INFO] BE -> AI : SQS 구독 시작: Listening to {verify_queue_url}...")
+
+    while True:
         try:
-            data = json.loads(message.data.decode("utf-8"))
-            blob_name = data["imageUrl"].split("/")[-1]
-            challenge_type = data["type"]
-            challenge_id = int(data["challengeId"])
-            challenge_name = data["challengeName"]
-            challenge_info = data["challengeInfo"]
+            response = sqs.receive_message(
+                QueueUrl = verify_queue_url,
+                MaxNumberOfMessages = 1,        # 한 번에 1개의 메시지만 처리
+                WaitTimeSeconds = 10,           # 최대 10초 대기 
+            )
 
-            result = verifier.image_verify(os.getenv("BUCKET_NAME_PROD"), blob_name, challenge_type, challenge_id, challenge_name, challenge_info)
-            
-            # 로깅용
-            print(f"인증 결과: {result}")
+            for message in response.get("Messages", []):
+                print("[SUB] BE -> AI : SQS 메시지 수신됨")
 
-            # '예' 여부가 정확히 일치할 때만 True
-            is_verified = "예" in result.strip().lower()
+                try:
+                    data = json.loads(message["Body"])
+                    print(f"[SUB] BE -> AI : SQS 메시지 내용 : {data}")
 
-            # 결과 콜백 전송
-            payload = {
-                "type": data["type"],
-                "memberId": data["memberId"],
-                "challengeId": data["challengeId"],
-                "verificationId": data["verificationId"],
-                "date": data["date"],
-                "result": is_verified
-            }
+                    # 메시지 처리
+                    process_message(data)
 
-            message_id = publish_result(payload)
+                    # 메시지 삭제
+                    sqs.delete_message(
+                        QueueUrl=verify_queue_url,
+                        ReceiptHandle=message["ReceiptHandle"]
+                    )
+                    print("[INFO] BE -> AI : SQS 메시지 삭제 완료 (ACK)")
 
-            print(f"[PUBLISH] 인증 결과 발행 완료 (message ID: {message_id})")
-            print(f"[PUBLISH] Payload: {json.dumps(payload, ensure_ascii=False)}")
-
-            message.ack()
+                except Exception:
+                    print("[ERROR] 메시지 처리 중 오류 발생, 메시지 삭제하지 않음")     # 삭제하지 않으면 SQS가 자동으로 재시도 
 
         except Exception as e:
-            print(f"[ERROR] 처리 실패: {e}")
-            message.nack()
-
-    # 구독 시작
-    print(f"[SUB] 구독 시작 시도: Listening on {subscription_path}...")
-    future = subscriber.subscribe(subscription_path, callback=callback)
-    print("[DEBUG] subscriber.subscribe() 호출 완료")
-    future.result()
+            print(f"[ERROR] SQS 메시지 수신 중 오류 발생 | SQS Polling 실패 : {e}")
+            time.sleep(1)
+                    

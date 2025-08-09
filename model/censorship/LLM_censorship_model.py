@@ -1,5 +1,4 @@
-from vertexai import init
-from vertexai.preview.generative_models import GenerativeModel
+import google.generativeai as genai
 
 import os
 from dotenv import load_dotenv
@@ -11,9 +10,8 @@ from collections import Counter
 class CensorshipModel :
     def __init__(self):
         load_dotenv()
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-        init(project=os.getenv("GOOGLE_CLOUD_PROJECT"), location="us-central1")
-        self.model = GenerativeModel("gemini-2.0-flash")
+        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+        self.model = genai.GenerativeModel("gemini-2.0-flash")
 
     def validate(self, challenge_name: str, start_date: str, end_date: str, existing: List[dict]):
         def dates_overlap(s1, e1, s2, e2):

@@ -1,8 +1,8 @@
-from vertexai.preview.generative_models import GenerativeModel
+import google.generativeai as genai
 from model.verify.mongodb import insert_prompt, get_prompt_by_id, prompt_exists
 
 def generate_group_prompt(challenge_name: str, challenge_info: str) -> str:      
-    model = GenerativeModel("gemini-2.0-flash")
+    model = genai.GenerativeModel("gemini-2.0-flash")
 
     system_prompt_message = (
         "당신은 사용자 챌린지를 위한 프롬프트를 설계하는 AI입니다. "

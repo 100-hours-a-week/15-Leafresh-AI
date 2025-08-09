@@ -1,42 +1,38 @@
-from vertexai import init
-from vertexai.preview.generative_models import GenerativeModel
+import google.generativeai as genai
 from dotenv import load_dotenv
-import os
-
-# 이미지 리사이징 
+import os, boto3
 from PIL import Image as PILImage
-from vertexai.preview.generative_models import Image as VertexImage
-
-# GCP Cloud Storage 연결
-from google.cloud import storage  
 import tempfile                     # 임시 파일 저장용
 
 # LangChain 적용
-# from langchain_google_vertexai import VertexAI
 from model.verify.event_challenge_prompt import event_challenge_prompts
 from model.verify.group_prompt_generator import get_or_create_group_prompt
 from model.verify.personal_challenge_prompt import personal_challenge_prompts
 
 
 class ImageVerifyModel :
-    def __init__(self, credential_env="GOOGLE_APPLICATION_CREDENTIALS", project_id=os.getenv("GOOGLE_CLOUD_PROJECT"), region="us-central1"): 
+    def __init__(self): 
         # 환경변수 로드 및 인증 초기화
         load_dotenv()
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv(credential_env)
-        init(project=project_id, location=region)                                       # Vertex AI 프로젝트/리전 초기화
-        self.model = GenerativeModel("gemini-2.0-flash")                                # 모델 정의
-        self.storage_client = storage.Client()                                          # GCS 클라이언트 
+        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))                                      
+        self.model = genai.GenerativeModel("gemini-2.0-flash")                          # 모델 정의
+        
+        # AWS S3 클라이언트 초기화
+        self.s3_client = boto3.client(
+            "s3",
+            aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+            aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+            region_name=os.getenv("AWS_DEFAULT_REGION")
+        )
 
 
     def image_verify(self, bucket_name: str, blob_name: str, challenge_type: str, challenge_id: int, challenge_name: str, challenge_info: str) -> str :
         print(f"[INFO] 이미지 인증 시작: bucket={bucket_name}, blob={blob_name}")
-        try:
-            bucket = self.storage_client.bucket(bucket_name)                            # 이미지 업로드 
-            blob = bucket.blob(blob_name)                                 
+        try:                                
        
             with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as temp_file:
-                print("[DEBUG] GCS에서 이미지 다운로드 시도...")
-                blob.download_to_filename(temp_file.name) 
+                print("[DEBUG] S3에서 이미지 다운로드 시도...")
+                self.s3_client.download_fileobj(bucket_name, blob_name, temp_file) 
                 print("[SUCCESS] 이미지 다운로드 완료:", temp_file.name)
 
                 # 이미지 리사이징 수행
@@ -53,14 +49,7 @@ class ImageVerifyModel :
                 except Exception as img_err:
                     return f"[에러] 이미지 리사이징 실패: {img_err}"
 
-                try: 
-                    # VertexAI용 이미지 객체 로드 
-                    image = VertexImage.load_from_file(temp_file.name)
-                    print("[SUCCESS] Vertex Image 로딩 완료")
-                except Exception as vertex_err:
-                    return f"[에러] Vertex Image 변환 실패: {vertex_err}"
-
-            return self.response(image, challenge_type, challenge_id, challenge_name, challenge_info)
+            return self.response(pillow_image, challenge_type, challenge_id, challenge_name, challenge_info)
 
         except Exception as e:
             return f"[에러] GCS 이미지 로드 실패: {e}" 
