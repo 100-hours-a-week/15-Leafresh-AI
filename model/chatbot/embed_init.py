@@ -39,7 +39,7 @@ try:
         print(f" '{COLLECTION_NAME}' 컬렉션 생성")
         qdrant_client.create_collection(
             collection_name=COLLECTION_NAME,
-            vectors_config=VectorParams(size=384, distance=Distance.COSINE)
+            vectors_config=VectorParams(size=768, distance=Distance.COSINE)
         )
     else:
         print(f" '{COLLECTION_NAME}' 컬렉션이 이미 존재합니다.")
@@ -47,7 +47,7 @@ except Exception as e:
     print(f"컬렉션 생성 중 오류 발생: {str(e)}")
 
 # 임베딩 모델
-embedding_fn = SentenceTransformerEmbeddings(model_name="BAAI/bge-small-en-v1.5")
+embedding_fn = SentenceTransformerEmbeddings(model_name="jhgan/ko-sroberta-multitask")
 
 # Qdrant vectorstore 객체
 vectorstore = Qdrant(
@@ -71,7 +71,7 @@ if RESET_COLLECTION:
         qdrant_client.delete_collection(collection_name=COLLECTION_NAME)
         qdrant_client.create_collection(
             collection_name=COLLECTION_NAME,
-            vectors_config=VectorParams(size=384, distance=Distance.COSINE)
+            vectors_config=VectorParams(size=768, distance=Distance.COSINE)
         )
         print(f"컬렉션 초기화 완료: '{COLLECTION_NAME}'")
     except Exception as e:

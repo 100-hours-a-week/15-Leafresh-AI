@@ -3,7 +3,7 @@ from langchain.prompts import PromptTemplate
 from langchain_qdrant import Qdrant
 from langchain_community.embeddings import SentenceTransformerEmbeddings
 from qdrant_client import QdrantClient
-from langchain_google_vertexai import VertexAI
+from langchain_google_genai import GoogleGenerativeAI
 from dotenv import load_dotenv
 from langchain.output_parsers import StructuredOutputParser, ResponseSchema
 from langgraph.graph import StateGraph, END
@@ -21,7 +21,7 @@ QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 COLLECTION_NAME = os.getenv("QDRANT_COLLECTION_NAME")
 
 qdrant_client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
-embedding_model = SentenceTransformerEmbeddings(model_name="BAAI/bge-small-en-v1.5")
+embedding_model = SentenceTransformerEmbeddings(model_name="jhgan/ko-sroberta-multitask")
 
 vectorstore = Qdrant(
     client=qdrant_client,
@@ -67,8 +67,12 @@ JSON 포맷:
 """
 )
 
-# LLM 초기화 (VertexAI)
-llm = VertexAI(model_name="gemini-2.0-flash", temperature=0.7)
+# LLM 초기화 (GoogleGenerativeAI)
+llm = GoogleGenerativeAI(
+    model="gemini-2.0-flash",
+    google_api_key=os.getenv("GEMINI_API_KEY_MAC"),
+    temperature=0.7,
+)
 
 # LLMChain 체인 생성 (retriever는 app_router에서 별도 사용)
 qa_chain = LLMChain(

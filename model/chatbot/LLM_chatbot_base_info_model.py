@@ -1,29 +1,23 @@
 # LLM_chatbot_base_info_model.py
-from google.cloud import aiplatform
-from vertexai.preview.generative_models import GenerativeModel
 from langchain.output_parsers import StructuredOutputParser, ResponseSchema
 from langchain.prompts import PromptTemplate
-from google.oauth2 import service_account
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 import os
 import json
 
+import google.generativeai as genai
+
 load_dotenv()
 
-#  환경 변수에서 값 가져오기
-SERVICE_ACCOUNT_FILE = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT")
-LOCATION = os.getenv("VERTEX_AI_LOCATION")
-MODEL_NAME = os.getenv("VERTEX_MODEL_NAME")
-
-# Vertex AI 초기화
-credentials = service_account.Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE)
-aiplatform.init(project=PROJECT_ID, location=LOCATION, credentials=credentials)
-
-# GenerativeModel 초기화(SDK 방식 사용)
-model = GenerativeModel(model_name=MODEL_NAME)
+# Gemini 환경 변수 및 모델 초기화
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY_MAC")
+MODEL_NAME = os.getenv("GEMINI_MODEL_NAME", "gemini-2.0-flash")
+if not GEMINI_API_KEY:
+    raise RuntimeError("GEMINI_API_KEY_MAC 환경 변수가 설정되어 있지 않습니다.")
+genai.configure(api_key=GEMINI_API_KEY)
+model = genai.GenerativeModel(MODEL_NAME)
 
 # base-info_response_schemas 정의
 base_response_schemas = [
@@ -53,20 +47,12 @@ JSON 포맷:
 # base-info_Output Parser 정의
 def get_llm_response(prompt):
     try:
-        model = GenerativeModel(model_name=MODEL_NAME)
         response = model.generate_content(prompt)
-
-        raw_text = response.text if hasattr(response, 'text') else response
-    
-        if isinstance(raw_text, dict): # dict이면 그대로 사용
-            parsed = raw_text
-        else:
-            text = raw_text.strip()
-            parsed = base_parser.parse(text)
-            if isinstance(parsed.get("challenges"), str):
-                parsed["challenges"] = json.loads(parsed["challenges"])
+        text = (response.text if hasattr(response, "text") else str(response)).strip()
+        parsed = base_parser.parse(text)
+        if isinstance(parsed.get("challenges"), str):
+            parsed["challenges"] = json.loads(parsed["challenges"])
         return parsed
-
     except HTTPException as http_err:
         raise http_err
     except Exception as e:
