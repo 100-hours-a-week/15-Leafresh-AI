@@ -15,7 +15,7 @@ from router.censorship_router import validation_exception_handler, http_exceptio
 from router.chatbot_router import router as chatbot_router
 
 from router.feedback_router import router as feedback_router
-from model.feedback.gcp_pubsub_worker import run_worker as run_feedback_worker
+from model.feedback.sqs_feedback_worker import run_worker as run_feedback_worker
 from router.feedback_router import feedback_exception_handler
 from router.feedback_router import feedback_http_exception_handler
 

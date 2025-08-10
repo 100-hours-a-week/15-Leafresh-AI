@@ -1,17 +1,18 @@
 from typing import List, Dict, Any, AsyncIterator
 from datetime import datetime, timedelta
-from vertexai import init
-from vertexai.preview.generative_models import GenerativeModel
 from dotenv import load_dotenv
 import os
 import traceback
+import google.generativeai as genai
 
 class FeedbackModel:
     def __init__(self):
         load_dotenv()
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-        init(project=os.getenv("GOOGLE_CLOUD_PROJECT"), location=os.getenv("VERTEX_AI_LOCATION"))
-        self.model = GenerativeModel(os.getenv("VERTEX_MODEL_NAME"))
+        api_key = os.getenv("GEMINI_API_KEY_MAC")
+        if not api_key:
+            raise RuntimeError("GEMINI_API_KEY_MAC 환경 변수가 설정되어 있지 않습니다.")
+        genai.configure(api_key=api_key)
+        self.model = genai.GenerativeModel(os.getenv("GEMINI_MODEL_NAME", "gemini-2.0-flash"))
         # 한글 기준으로 4-5문장에 적절한 토큰 수로 조정 (약 200-250자)
         self.max_tokens = 200
         # 프롬프트 템플릿을 환경 변수에서 가져오거나 기본값 사용
@@ -106,7 +107,7 @@ class FeedbackModel:
             )
 
             try:
-                # Vertex AI를 통한 피드백 생성 (스트리밍 방식 사용 -> 비스트리밍으로 변경)
+                # Gemini를 통한 피드백 생성
                 response = self.model.generate_content(
                     prompt,
                     generation_config={
@@ -117,10 +118,7 @@ class FeedbackModel:
                     }
                 )
 
-                # Access the full text directly from the non-streaming response
-                full_feedback = ""
-                if response.candidates and response.candidates[0].content.parts:
-                    full_feedback = response.candidates[0].content.parts[0].text
+                full_feedback = response.text if hasattr(response, "text") else ""
 
                 if not full_feedback.strip():
                     return {
