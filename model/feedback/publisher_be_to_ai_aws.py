@@ -24,8 +24,8 @@ def add_feedback_task(data: dict):
         
         if is_fifo_queue:
             # FIFO Queue인 경우 MessageGroupId와 MessageDeduplicationId 필요
-            message_group_id = str(data.get("memberId", "default"))
-            message_deduplication_id = str(uuid.uuid4())
+            message_group_id = str(data.get("memberId", "default"))  # 사용자별 순서 보장
+            message_deduplication_id = str(data.get("requestId") or uuid.uuid4())  # 재시도에도 동일 값 유지
             
             response = sqs.send_message(
                 QueueUrl=queue_url,
