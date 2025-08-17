@@ -10,14 +10,6 @@ from model.feedback.publisher_ai_to_be_aws import publish_result
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-import boto3
-import os
-from dotenv import load_dotenv
-print("AWS_ACCESS_KEY_ID_SERVER2:", os.getenv('AWS_ACCESS_KEY_ID_SERVER2'))
-print("AWS_SECRET_ACCESS_KEY_SERVER2:", os.getenv('AWS_SECRET_ACCESS_KEY_SERVER2'))
-print("AWS_DEFAULT_REGION_SERVER2:", os.getenv('AWS_DEFAULT_REGION_SERVER2', 'ap-northeast-2'))
-print("AWS_SQS_FEEDBACK_QUEUE_URL:", os.getenv('AWS_SQS_FEEDBACK_QUEUE_URL'))
-print("AWS_SQS_FEEDBACK_RESULT_QUEUE_URL:", os.getenv('AWS_SQS_FEEDBACK_RESULT_QUEUE_URL'))
 
 sqs = boto3.client(
     'sqs',
