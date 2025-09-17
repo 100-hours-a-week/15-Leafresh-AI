@@ -230,6 +230,31 @@ async def freetext_rag(
                 "category": "제로웨이스트", # 기본값
                 "base_category": "제로웨이스트"
             }
+
+        # 🔁 상태 기반 질문 감지 (이전에 추천받은 챌린지 회상 요청)
+        state_query_keywords = ["전에", "이전", "방금", "아까", "추천받은", "다시"]
+        if any(keyword in message for keyword in state_query_keywords):
+            messages = conversation_states.get(sessionId, {}).get("messages", [])
+            for msg in reversed(messages):
+                if msg["role"] == "assistant":
+                    logger.info("🔁 상태기반 질문 감지: 마지막 assistant 응답 재전송")
+                    yield {
+                        "event": "challenge",
+                        "data": json.dumps({
+                            "status": 200,
+                            "message": "이전 응답 재전송",
+                            "data": msg["content"]
+                        }, ensure_ascii=False)
+                    }
+                    yield {
+                        "event": "close",
+                        "data": json.dumps({
+                            "status": 200,
+                            "message": "모든 챌린지 추천 완료",
+                            "data": json.loads(msg["content"]) if msg["content"].strip().startswith("{") else {"text": msg["content"]}
+                        }, ensure_ascii=False)
+                    }
+                    return
         # fallback 조건 검사 (환경 관련이 아니거나 비속어가 포함된 경우)
         if not is_category_request and (not is_env_related or contains_bad_words):
             logger.info(f"Fallback triggered: {message}")
