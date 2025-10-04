@@ -44,9 +44,10 @@ try:
 except Exception as e:
     print(f"컬렉션 생성 중 오류 발생: {str(e)}")
 
-# 임베딩 모델
+# 임베딩 모델 (CPU 사용)
 embedding_fn = SentenceTransformerEmbeddings(
-    model_name="jhgan/ko-sroberta-multitask"
+    model_name="jhgan/ko-sroberta-multitask",
+    model_kwargs={'device': 'cpu'}
 )
 
 # Qdrant vectorstore 객체
@@ -86,7 +87,6 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 file_path = os.path.join(current_dir, "challenge_docs.txt")
 
 fixed_challenges = []
-crawled_challenges = []
 
 try:
     with open(file_path, "r", encoding="utf-8") as f:
@@ -102,10 +102,7 @@ try:
             continue
         if mode == "fixed":
             fixed_challenges.append(line)
-        elif mode == "crawled":
-            # 크롤링 기반 챌린지는 여러 줄(문장+메타데이터)로 구성되어 있으므로, '카테고리:' 등으로 시작하지 않는 줄만 content로 저장
-            if not (line.startswith("카테고리:") or line.startswith("위치:") or line.startswith("직종:")):
-                crawled_challenges.append(line)
+        # 크롤링 데이터는 별도로 처리하므로 여기서는 제외
 except Exception as e:
     print(f"challenge_docs.txt 파일 읽기 오류: {str(e)}")
 
@@ -132,21 +129,65 @@ for challenge in fixed_challenges:
                 "기타"
             ),
             "source": "기본데이터",
-            "content_hash": content_hash  # 해시값을 메타데이터에 저장
-        }
-        documents.append(Document(page_content=challenge, metadata=metadata))
-
-# 2. 크롤링 데이터 처리 (content만 임베딩)
-for challenge in crawled_challenges:
-    content_hash = get_content_hash(challenge)
-    if content_hash not in seen_hashes:
-        seen_hashes.add(content_hash)
-        metadata = {
-            "category": "크롤링",
-            "source": "크롤링데이터",
+            "location": (
+                "도시" if "도시" in challenge else
+                "농촌" if "농촌" in challenge else
+                "산간" if "산간" in challenge else
+                "해안" if "바다" in challenge or "해변" in challenge or "바닷가" in challenge else
+                "N/A"
+            ),
+            "job_type": (
+                "사무직" if "사무직" in challenge or "사무실" in challenge else
+                "영업직" if "영업직" in challenge or "영업" in challenge else
+                "현장직" if "현장직" in challenge or "현장" in challenge else
+                "재택근무" if "재택근무" in challenge else
+                "N/A"
+            ),
             "content_hash": content_hash
         }
         documents.append(Document(page_content=challenge, metadata=metadata))
+
+# 2. 크롤링 데이터 처리 (메타데이터 포함)
+crawled_challenge_blocks = []
+current_block = {"content": "", "metadata": {}}
+
+for line in lines:
+    line = line.strip()
+    if not line or line.startswith("#"):
+        if "크롤링 기반 챌린지" in line:
+            mode = "crawled"
+        continue
+    
+    if mode == "crawled":
+        if line.startswith("카테고리:"):
+            current_block["metadata"]["category"] = line.replace("카테고리:", "").strip()
+        elif line.startswith("위치:"):
+            current_block["metadata"]["location"] = line.replace("위치:", "").strip()
+        elif line.startswith("직종:"):
+            current_block["metadata"]["job_type"] = line.replace("직종:", "").strip()
+        elif line:  # 빈 줄이 아닌 경우 (챌린지 내용)
+            if current_block["content"]:  # 이미 내용이 있으면 블록 완성
+                crawled_challenge_blocks.append(current_block)
+                current_block = {"content": "", "metadata": {}}
+            current_block["content"] = line
+
+# 마지막 블록 추가
+if current_block["content"]:
+    crawled_challenge_blocks.append(current_block)
+
+# 크롤링 데이터 임베딩
+for block in crawled_challenge_blocks:
+    content_hash = get_content_hash(block["content"])
+    if content_hash not in seen_hashes:
+        seen_hashes.add(content_hash)
+        metadata = {
+            "category": block["metadata"].get("category", "기타"),
+            "source": "크롤링데이터",
+            "location": block["metadata"].get("location", "N/A"),
+            "job_type": block["metadata"].get("job_type", "N/A"),
+            "content_hash": content_hash
+        }
+        documents.append(Document(page_content=block["content"], metadata=metadata))
 
 # 청크 분할 및 임베딩
 chunks = splitter.split_documents(documents)
