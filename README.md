@@ -46,6 +46,14 @@ Model | Version | Accuracy | 개선 사항
 Censorship Model | v1.1 -> v1.2 | 66.00% -> `96.00%` | Rule-based 필터링 추가, 프롬프트 개선
 Verify Model | v1.1 -> v1.2 | 75.71% -> `98.68%` | LangChain 적용, 이미지 리사이징, 프롬프트 개선
 
+Model | Version | TTFT / Latency | 개선 사항
+-- | -- | -- | --
+Chatbot Model | v1.1 -> v1.2 | 89s → `12s` / 400s → `25s` | HuggingFace → vLLM 전환, SSE 이벤트 분리, 공백 기준 버퍼 flush
+
+Model | Version | Quality Metric | 개선 사항
+-- | -- | -- | --
+Chatbot (RAG) | v1.1 -> v1.2 | GPT Judge 기준 품질 우세 비율 `62.5%` | Qdrant 기반 RAG 적용, 검색 전략 비교 실험 후 최종 구조 선정
+
 <br>
 
 ## 👉🏻 FastAPI end-point
